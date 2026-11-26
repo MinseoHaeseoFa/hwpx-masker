@@ -309,6 +309,11 @@
 
   /* ── HWPX 열기 ──────────────────────────────────── */
   async function open(buffer, fileName) {
+    if (typeof JSZip === 'undefined') {
+      const e = new Error('JSZip 없음');
+      e.code = 'NO_JSZIP';
+      throw e;
+    }
     const bytes = new Uint8Array(buffer);
     // 구형 .hwp(OLE/CFB) 는 ZIP 이 아니다.
     if (bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0) {
@@ -651,12 +656,6 @@
     }
   }
 
-  function applyPlan(document) {
-    for (const para of document.paras) {
-      if (para.ranges.length) applyPara(para);
-    }
-  }
-
   function serializeSection(sec) {
     let out = new XMLSerializer().serializeToString(sec.doc);
     out = out.replace(/^<\?xml[^>]*\?>\s*/, '');
@@ -753,7 +752,7 @@
 
   global.Masker = {
     CATEGORIES, DETECT_ORDER, MASKS, customMask, newItemId,
-    open, detect, plan, applyPlan, serializeSection,
+    open, detect, plan, serializeSection,
     maskedText, maskedLines, maskedParaText, buildMaskedHwpx,
     itemFromMatch, maskForKind
   };

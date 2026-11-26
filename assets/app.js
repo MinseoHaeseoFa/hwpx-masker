@@ -123,6 +123,8 @@
       toast('HWPX 문서가 아닙니다. 한글에서 HWPX 문서로 저장한 파일인지 확인해 주세요.', 'err', 8000);
     } else if (code === 'NO_SECTION') {
       toast('문서 본문(Contents/section*.xml)을 찾지 못했습니다. 다른 HWPX 파일로 시도해 주세요.', 'err', 8000);
+    } else if (code === 'NO_JSZIP') {
+      toast('압축 해제 모듈(JSZip)을 불러오지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.', 'err', 8000);
     } else if (code === 'BAD_XML') {
       toast('문서 내부 XML을 읽는 중 문제가 생겼습니다. 이 파일은 처리하지 않았습니다.', 'err', 8000);
     } else {
