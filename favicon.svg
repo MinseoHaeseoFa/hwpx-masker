@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="민감정보 안심마스커">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6f9bff"/>
+      <stop offset="1" stop-color="#2ed0ad"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#0a1120"/>
+  <path d="M32 7 54 14.5V33c0 12.8-9.2 21.4-22 25.5C19.2 54.4 10 45.8 10 33V14.5z" fill="url(#g)"/>
+  <path d="M32 7 54 14.5V33c0 12.8-9.2 21.4-22 25.5C19.2 54.4 10 45.8 10 33V14.5z" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.2"/>
+  <g stroke="#07101d" stroke-width="4.2" stroke-linecap="round">
+    <line x1="32" y1="18" x2="32" y2="46"/>
+    <line x1="19.9" y1="25" x2="44.1" y2="39"/>
+    <line x1="44.1" y1="25" x2="19.9" y2="39"/>
+  </g>
+</svg>

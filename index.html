@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>민감정보 안심마스커 — HWPX 개인정보 가리기</title>
+<meta name="description" content="한글(HWPX) 문서의 주민등록번호·전화번호·이메일·계좌·주소·성명을 브라우저 안에서만 가립니다. 파일은 서버로 전송되지 않고, 원본 서식은 그대로 유지됩니다.">
+<meta name="theme-color" content="#0b1220">
+<link rel="canonical" href="https://hwpx-masker.vercel.app/">
+<meta property="og:url" content="https://hwpx-masker.vercel.app/">
+<meta property="og:site_name" content="민감정보 안심마스커">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:title" content="민감정보 안심마스커">
+<meta property="og:description" content="HWPX 문서의 민감정보를 100% 브라우저에서 가립니다. 서버 전송 없음.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://hwpx-masker.vercel.app/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="민감정보 안심마스커 — 한글(HWPX) 문서의 개인정보만 골라 가립니다">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="민감정보 안심마스커">
+<meta name="twitter:description" content="HWPX 문서의 민감정보를 100% 브라우저에서 가립니다. 서버 전송 없음.">
+<meta name="twitter:image" content="https://hwpx-masker.vercel.app/assets/og-image.png">
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="https://hwpx-masker.vercel.app/assets/og-image.png">
+<link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+<a class="skip" href="#workspace">본문으로 건너뛰기</a>
+
+<header class="topbar">
+  <div class="brand">
+    <img class="logo" src="./favicon.svg" alt="" width="40" height="40">
+    <div class="brand-text">
+      <h1>민감정보 안심마스커</h1>
+      <p class="tagline">한글(HWPX) 문서에서 개인정보만 골라 가립니다</p>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <p class="badge" title="파일은 브라우저 메모리에서만 처리되며 외부로 전송되지 않습니다.">
+      <span class="badge-lock" aria-hidden="true">🔒</span>
+      <span>100% 브라우저 오프라인 처리 · 서버 전송 없음</span>
+    </p>
+    <button id="themeBtn" class="icon-btn" type="button" aria-label="화면 테마 바꾸기" title="라이트/다크 전환">
+      <span id="themeIcon" aria-hidden="true">☾</span>
+    </button>
+  </div>
+</header>
+
+<main id="app">
+  <!-- ───────────────────────────── 시작 화면 ───────────────────────────── -->
+  <section id="landing" class="landing">
+    <div class="hero">
+      <p class="eyebrow">AI에게 문서를 넘기기 전, 딱 한 번</p>
+      <h2>개인정보만 지우고<br>서식은 그대로 남깁니다</h2>
+      <p class="hero-sub">
+        주민등록번호·전화번호·이메일·계좌·주소·성명을 자동으로 찾아 가리고,
+        표·글자 모양·병합 셀까지 원본 그대로인 <code>_masked.hwpx</code>를 만들어 드립니다.
+      </p>
+    </div>
+
+    <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="HWPX 파일 선택 또는 끌어다 놓기">
+      <div class="dropzone-icon" aria-hidden="true">📄</div>
+      <p class="dz-title">HWPX 파일을 여기로 끌어다 놓으세요</p>
+      <p class="dz-sub">또는 <span class="link">파일 선택</span> · .hwp(구형)는 한글에서 <b>다른 이름으로 저장 → HWPX 문서</b>로 변환 후 올려주세요</p>
+      <input type="file" id="fileInput" accept=".hwpx,application/hwp+zip" hidden>
+    </div>
+
+    <div class="landing-actions">
+      <button id="sampleBtn" class="btn ghost" type="button">
+        <span aria-hidden="true">🧪</span> 감사 처분요구서 샘플 .hwpx 로 체험하기
+      </button>
+      <p class="micro">샘플은 가상의 문서이며, 내려받은 뒤 그대로 테스트에 쓸 수 있습니다.</p>
+    </div>
+
+    <ul class="feat">
+      <li>
+        <span class="feat-ico" aria-hidden="true">🔍</span>
+        <h3>8종 자동 탐지</h3>
+        <p>주민번호·전화·이메일·계좌·카드·사업자·차량·주소·생년월일. 항목별로 켜고 끌 수 있습니다.</p>
+      </li>
+      <li>
+        <span class="feat-ico" aria-hidden="true">🎯</span>
+        <h3>오탐 없는 맞춤 치환</h3>
+        <p>이름·부서는 표 라벨 옆 값만 후보로 올리고, 미리보기에서 클릭한 단어만 문서 전체에 일괄 적용합니다.</p>
+      </li>
+      <li>
+        <span class="feat-ico" aria-hidden="true">🧩</span>
+        <h3>서식 무손실</h3>
+        <p>여러 조각으로 쪼개진 글자(run split)까지 찾아내고, 표·스타일 태그는 건드리지 않습니다.</p>
+      </li>
+    </ul>
+  </section>
+
+  <!-- ───────────────────────────── 작업 화면 ───────────────────────────── -->
+  <section id="workspace" class="workspace" hidden>
+    <div class="workspace-head">
+      <div class="file-info">
+        <span class="file-ico" aria-hidden="true">📄</span>
+        <div>
+          <p id="fileName" class="file-name">-</p>
+          <p id="fileMeta" class="file-meta">-</p>
+        </div>
+      </div>
+      <div class="head-actions">
+        <button id="reloadBtn" class="btn small ghost" type="button">다른 파일 열기</button>
+      </div>
+    </div>
+
+    <div class="workspace-grid">
+      <div class="preview-pane card">
+        <div class="pane-head">
+          <h2>문서 미리보기</h2>
+          <p class="hint">가려질 곳은 <mark class="mk">이렇게</mark> 표시됩니다 · 단어를 더블클릭하거나 드래그하면 맞춤 치환에 추가됩니다</p>
+        </div>
+        <div id="preview" class="preview" aria-label="문서 미리보기"></div>
+      </div>
+
+      <aside class="side">
+        <section class="card summary" aria-labelledby="summaryTitle">
+          <h2 id="summaryTitle">한눈에 보기</h2>
+          <div class="stats">
+            <div class="stat"><span id="statItems" class="stat-num">0</span><span class="stat-label">가릴 항목</span></div>
+            <div class="stat"><span id="statHits" class="stat-num">0</span><span class="stat-label">치환 위치</span></div>
+            <div class="stat"><span id="statOff" class="stat-num">0</span><span class="stat-label">제외</span></div>
+          </div>
+          <p id="summaryMsg" class="summary-msg">파일을 불러오는 중입니다…</p>
+        </section>
+
+        <section class="card" aria-labelledby="catTitle">
+          <div class="card-head">
+            <h2 id="catTitle">자동 탐지</h2>
+            <button id="catAllBtn" class="link-btn" type="button">전체 켜기</button>
+          </div>
+          <ul id="catList" class="cat-list"></ul>
+        </section>
+
+        <section class="card" aria-labelledby="customTitle">
+          <div class="card-head">
+            <h2 id="customTitle">성명·부서·금액 맞춤 치환</h2>
+          </div>
+          <p class="card-note">표 라벨(<b>성명·대상자·피감사인·부서·소속·기관명·업체명</b>) 옆 값만 자동으로 추천합니다. 무작위 2~4글자 탐지는 하지 않습니다.</p>
+          <div id="labelList" class="label-list"></div>
+          <form id="addForm" class="add-form" autocomplete="off">
+            <label class="sr-only" for="addInput">문서에서 가릴 단어</label>
+            <input id="addInput" type="text" placeholder="예: 홍길동, 감사실, 3,250,000원" maxlength="40">
+            <select id="addStyle" aria-label="가리는 방식">
+              <option value="auto">자동</option>
+              <option value="center">가운데 가리기 (홍OO)</option>
+              <option value="tail">끝 가리기 (OO실)</option>
+              <option value="all">전부 가리기 (***)</option>
+              <option value="amount">금액 가리기 (*,***,***원)</option>
+            </select>
+            <button class="btn small" type="submit">추가</button>
+          </form>
+          <p id="addHint" class="form-hint" role="status"></p>
+        </section>
+
+        <section class="card" aria-labelledby="listTitle">
+          <div class="card-head">
+            <h2 id="listTitle">가릴 항목</h2>
+            <span id="listCount" class="count-pill">0</span>
+          </div>
+          <ul id="itemList" class="item-list"></ul>
+          <p id="emptyItems" class="card-note" hidden>탐지된 항목이 없습니다. 문서에 개인정보가 없다면 그대로 내려받아도 됩니다.</p>
+        </section>
+
+        <section class="card export" aria-labelledby="exportTitle">
+          <h2 id="exportTitle">내보내기</h2>
+          <button id="downloadBtn" class="btn primary block" type="button">
+            <span aria-hidden="true">⬇︎</span> <span id="downloadLabel">_masked.hwpx 다운로드</span>
+          </button>
+          <button id="copyBtn" class="btn block" type="button">
+            <span aria-hidden="true">📋</span> AI 입력용 마스킹 텍스트 복사
+          </button>
+          <label class="switch">
+            <input id="cleanTrace" type="checkbox" checked>
+            <span>문서 미리보기 흔적(<code>PrvText</code>·썸네일)도 함께 정리</span>
+          </label>
+          <p class="card-note small">원본 파일은 그대로 두고, 이름 뒤에 <code>_masked</code>가 붙은 새 파일로 저장합니다.</p>
+        </section>
+      </aside>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <p><b>민감정보 안심마스커</b>는 파일을 열고 가리는 모든 과정을 브라우저 메모리에서 처리합니다. 네트워크 요청 없이도 동작하며, 어디에도 저장·전송하지 않습니다.</p>
+  <p class="micro">미리보기는 문서의 글자 흐름을 보여주는 근사 화면입니다. 실제 서식은 내려받은 HWPX에서 그대로 유지됩니다.</p>
+</footer>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<div id="busy" class="busy" hidden><div class="busy-box"><span class="spinner" aria-hidden="true"></span><span id="busyText">처리 중…</span></div></div>
+<div id="dropOverlay" class="drop-overlay" hidden><p>여기에 놓으면 바로 열립니다</p></div>
+
+<script src="./assets/jszip.min.js"></script>
+<script src="./assets/sample-data.js"></script>
+<script src="./assets/engine.js"></script>
+<script src="./assets/app.js"></script>
+</body>
+</html>
