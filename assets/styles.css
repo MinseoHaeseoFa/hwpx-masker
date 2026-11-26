@@ -437,9 +437,9 @@ mark.mk:hover { background: color-mix(in srgb, var(--mark-line) 45%, transparent
   .stat-num { font-size: 18px; }
   .item-list { max-height: none; }
   /* 모바일: 화면을 덮지 않도록 내보내기는 고정하지 않고, 요약 다음에 둔다 */
-  .side > .summary { order: 1; }
-  .side > .export { order: 2; position: static; box-shadow: none; border-radius: var(--radius); }
   .side > .card { order: 3; }
+  .side > .card.summary { order: 1; }
+  .side > .card.export { order: 2; position: static; box-shadow: none; border-radius: var(--radius); }
   .toast { bottom: 20px; }
 }
 
