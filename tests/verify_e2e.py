@@ -275,6 +275,33 @@ def main():
         check(not m_errors, "모바일 콘솔 에러 0건", "; ".join(m_errors[:3]))
         mctx.close()
 
+        # 10) 탐지 규칙 매트릭스(오탐 방지)
+        cases = [
+            ("2026-11-26 회의 일정", []),
+            ("2026.01.01. ~ 2026.12.31.", []),
+            ("총 집행액 12,345,000원", []),
+            ("3,250,000원", []),
+            ("대흥로 123", []),
+            ("123-456-789012", ["account"]),
+            ("7002231234567", ["rrn"]),
+            ("010-8990-0543", ["phone"]),
+            ("02-123-4567", ["phone"]),
+            ("12가3456", ["vehicle"]),
+            ("충청남도 천안시 동남구 대흥로 123, 4층 402호", ["address"]),
+            ("hong@kitech.re.kr", ["email"]),
+            ("사업자 123-45-67890", ["bizno"]),
+            ("생년월일 1970.02.23", ["birth"]),
+            ("2026.02.23 시행", []),
+            ("1234-5678-9012-3456", ["account"]),
+        ]
+        got = page.evaluate(
+            """(cases) => cases.map(([t]) => window.Masker.scanText(t).map(h => h.category))""",
+            [[c[0]] for c in cases],
+        )
+        for (text, expect), cats in zip(cases, got):
+            ok = sorted(set(cats)) == sorted(expect)
+            check(ok, f"탐지 규칙: 『{text}』 → {expect or '없음'}", str(cats))
+
         check(not console_errors, "데스크톱 콘솔 에러 0건", "; ".join(console_errors[:3]))
         check(not external_requests, "외부 네트워크 요청 0건(100% 로컬 처리)",
               ", ".join(sorted(set(external_requests))[:3]))

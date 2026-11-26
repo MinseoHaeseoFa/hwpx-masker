@@ -750,8 +750,29 @@
     return { blob, fileName: base + '_masked.hwpx' };
   }
 
+  /** 한 문자열에 대해 탐지 규칙만 돌려 보는 진단용 함수(테스트·디버깅). */
+  function scanText(text, enabled) {
+    const en = enabled || {};
+    const on = (k) => (k === 'card' ? en.account !== false : en[k] !== false);
+    const found = [];
+    for (const per of DETECT_ORDER) {
+      if (!on(per)) continue;
+      for (const h of DETECTORS[per](text, '')) found.push(h);
+    }
+    found.sort((a, b) => (DETECT_ORDER.indexOf(a.category) - DETECT_ORDER.indexOf(b.category)) || (a.start - b.start));
+    const taken = [];
+    const out = [];
+    for (const h of found) {
+      const end = h.start + h.original.length;
+      if (taken.some((r) => h.start < r.end && end > r.start)) continue;
+      taken.push({ start: h.start, end });
+      out.push(h);
+    }
+    return out;
+  }
+
   global.Masker = {
-    CATEGORIES, DETECT_ORDER, MASKS, customMask, newItemId,
+    CATEGORIES, DETECT_ORDER, MASKS, customMask, newItemId, scanText,
     open, detect, plan, serializeSection,
     maskedText, maskedLines, maskedParaText, buildMaskedHwpx,
     itemFromMatch, maskForKind
