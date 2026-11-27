@@ -888,6 +888,15 @@
     preview.addEventListener('dblclick', () => setTimeout(handle, 0));
   }
 
+  function josa(word, withBatchim, withoutBatchim) {
+    const w = String(word || '').trim();
+    if (!w) return withoutBatchim;
+    const code = w.charCodeAt(w.length - 1);
+    const hangul = code >= 0xac00 && code <= 0xd7a3;
+    const hasBatchim = hangul && (code - 0xac00) % 28 !== 0;
+    return hasBatchim ? withBatchim : withoutBatchim;
+  }
+
   function cleanWord(raw) {
     let t = String(raw || '').replace(/\s+/g, ' ').trim();
     t = t.replace(/^[^0-9A-Za-z가-힣]+/, '').replace(/[^0-9A-Za-z가-힣%,원)~]+$/, '');
@@ -920,7 +929,7 @@
       exclude: item && item.exclude ? new Set(item.exclude) : new Set(),
       wordCount: wordOcc.length, partCount: partOcc.length
     };
-    $('#affectWord').textContent = word;
+    $('#affectTitle').textContent = '「' + word + '」' + josa(word, '을', '를') + ' 어디까지 바꿀까요?';
     $('#affectWordCount').textContent = wordOcc.length + '곳';
     $('#affectPartialCount').textContent = partOcc.length + '곳';
     $$('input[name="affectMode"]').forEach((r) => { r.checked = r.value === mode; });
@@ -1078,7 +1087,7 @@
     $('#presetName').value = '';
     renderPresets();
     setPresetHint(`「${preset.name}」 저장됨 · 규칙 ${rules.length}개`, false);
-    toast(`마스킹 세트 「${preset.name}」을(를) 저장했습니다.`, 'ok', 3200);
+    toast(`마스킹 세트 「${preset.name}」${josa(preset.name, '을', '를')} 저장했습니다.`, 'ok', 3200);
   }
 
   function setPresetHint(text, isErr) {

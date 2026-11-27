@@ -375,6 +375,9 @@ def main():
         page.wait_for_timeout(350)
         check(page.locator("#presetList .preset-item").count() == 1, "프리셋이 저장된다",
               page.locator("#presetHint").inner_text())
+        page.locator("#presetList").scroll_into_view_if_needed()
+        page.wait_for_timeout(200)
+        page.screenshot(path=os.path.join(SHOTS, "desktop-1280-08-프리셋.png"), full_page=True)
         stored = page.evaluate("() => localStorage.getItem('masker-presets-v1')")
         check(stored and "감사 기본 세트" in stored, "프리셋이 localStorage 에만 저장된다")
 
@@ -533,6 +536,8 @@ def main():
             t0 = time.time()
             with sp.expect_download(timeout=180000) as dl4:
                 sp.click("#downloadBtn")
+                sp.wait_for_timeout(300)
+                sp.screenshot(path=os.path.join(SHOTS, "desktop-1280-09-진행률.png"))
             out4 = os.path.join(SHOTS, "대용량_masked.hwpx")
             dl4.value.save_as(out4)
             dl_seconds = time.time() - t0
