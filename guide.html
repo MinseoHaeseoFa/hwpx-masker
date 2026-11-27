@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>민감정보 안심마스커 사용설명서 | HWPX 개인정보 가리기</title>
+<script>
+  /* 인페이지 모달(iframe) 임베드 감지 — 이때만 설명서 자체 상단 바를 숨깁니다.
+     독립 창·PC 팝업(window.open)에서는 window.self === window.top 이므로 상단 바가 그대로 보입니다. */
+  (function () {
+    var embedded = false;
+    try { embedded = (window.self !== window.top); } catch (e) { embedded = true; }
+    if (!embedded) {
+      try { embedded = /(^|[?&])(embed|modal)=1(&|$)/.test(window.location.search); } catch (e) {}
+    }
+    if (embedded) {
+      document.documentElement.className = (document.documentElement.className + ' is-embed').trim();
+    }
+  })();
+</script>
+<style>
+  :root{
+    --navy:#0f172a;
+    --navy2:#1e293b;
+    --blue:#1d4ed8;
+    --blue-l:#2563eb;
+    --ink:#334155;
+    --ink-strong:#0f172a;
+    --muted:#64748b;
+    --line:#e2e8f0;
+    --soft:#f8fafc;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;
+    background:#eef2f7;
+    color:var(--ink);
+    font-family:"Pretendard","Pretendard Variable",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR","Noto Sans CJK KR",sans-serif;
+    font-size:15px;
+    line-height:1.75;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--blue);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+
+  /* ── 상단 도구 막대 ─────────────────────────── */
+  .toolbar{
+    background:var(--navy);
+    color:#e2e8f0;
+    border-bottom:1px solid #1e293b;
+    position:sticky;
+    top:0;
+    z-index:30;
+  }
+  .toolbar-inner{
+    max-width:920px;
+    margin:0 auto;
+    padding:10px 18px;
+    overflow:hidden;
+  }
+  .toolbar-title{
+    float:left;
+    padding-top:5px;
+    font-size:13px;
+    font-weight:700;
+    letter-spacing:-0.01em;
+    color:#fff;
+    white-space:nowrap;
+  }
+  .toolbar-actions{
+    float:right;
+    white-space:nowrap;
+  }
+  .btn{
+    display:inline-block;
+    font-family:inherit;
+    font-size:12.5px;
+    font-weight:700;
+    line-height:1;
+    padding:8px 13px;
+    border-radius:8px;
+    border:1px solid #334155;
+    background:#1e293b;
+    color:#e2e8f0;
+    cursor:pointer;
+    margin-left:6px;
+    transition:background .15s ease,border-color .15s ease;
+  }
+  .btn:hover{background:#334155;border-color:#475569;}
+  .btn-primary{background:var(--blue-l);border-color:var(--blue-l);color:#fff;}
+  .btn-primary:hover{background:#3b82f6;border-color:#3b82f6;}
+
+  /* ── 인페이지 모달(iframe) 임베드: 자체 상단 바 숨김 ── */
+  html.is-embed .toolbar{display:none!important;}
+  html.is-embed body{background:#fff;}
+  html.is-embed .page{max-width:none;box-shadow:none;border-radius:0;}
+  html.is-embed .hero{padding-top:26px;}
+
+  /* ── 본문 카드 ─────────────────────────────── */
+  .page{
+    max-width:920px;
+    margin:0 auto;
+    background:#fff;
+    box-shadow:0 1px 3px rgba(15,23,42,.06),0 12px 32px rgba(15,23,42,.06);
+    border-radius:0 0 14px 14px;
+    overflow:hidden;
+  }
+
+  /* ── 히어로 ────────────────────────────────── */
+  .hero{
+    background:linear-gradient(135deg,#0f172a 0%,#16243f 55%,#1e2a5a 100%);
+    color:#fff;
+    padding:34px 34px 30px;
+  }
+  .hero-kicker{
+    display:inline-block;
+    font-size:11.5px;
+    font-weight:700;
+    letter-spacing:.02em;
+    color:#93c5fd;
+    background:rgba(59,130,246,.16);
+    border:1px solid rgba(96,165,250,.35);
+    border-radius:999px;
+    padding:4px 11px;
+    margin-bottom:14px;
+  }
+  .hero h1{
+    margin:0 0 8px;
+    font-size:27px;
+    line-height:1.35;
+    font-weight:800;
+    letter-spacing:-0.02em;
+    color:#fff;
+  }
+  .hero p{margin:0;color:#cbd5e1;font-size:14px;}
+  .hero-meta{margin-top:18px;font-size:12.5px;color:#94a3b8;}
+  .hero-meta span{display:inline-block;margin-right:14px;}
+  .hero-meta b{color:#e2e8f0;font-weight:700;}
+
+  .wrap{padding:0 34px 42px;}
+
+  /* ── 3분 요약 ──────────────────────────────── */
+  .quick{
+    margin-top:-18px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:12px;
+    box-shadow:0 6px 18px rgba(15,23,42,.07);
+    padding:18px 20px;
+    position:relative;
+  }
+  .quick h2{
+    margin:0 0 10px;
+    font-size:13px;
+    font-weight:800;
+    color:var(--blue);
+    letter-spacing:.01em;
+  }
+  .quick ol{
+    margin:0;
+    padding-left:20px;
+    font-size:14px;
+    color:var(--ink);
+  }
+  .quick ol li{margin:4px 0;}
+  .quick ol li b{color:var(--ink-strong);}
+
+  /* ── 목차 ──────────────────────────────────── */
+  .toc{
+    margin:26px 0 8px;
+    border:1px solid var(--line);
+    border-radius:12px;
+    background:var(--soft);
+    padding:16px 20px;
+  }
+  .toc h2{
+    margin:0 0 8px;
+    font-size:12px;
+    font-weight:800;
+    color:var(--muted);
+    letter-spacing:.06em;
+  }
+  .toc ol{margin:0;padding-left:18px;font-size:14px;}
+  .toc li{margin:3px 0;}
+  .toc li a{font-weight:600;color:#1e3a8a;}
+
+  /* ── 섹션 ──────────────────────────────────── */
+  section{margin-top:40px;}
+  .sec-head{
+    display:table;
+    width:100%;
+    border-bottom:1px solid var(--line);
+    padding-bottom:10px;
+    margin-bottom:18px;
+  }
+  .sec-num{
+    display:table-cell;
+    width:26px;
+    vertical-align:top;
+  }
+  .sec-num span{
+    display:block;
+    width:26px;height:26px;
+    border-radius:7px;
+    background:var(--blue);
+    color:#fff;
+    font-size:13px;
+    font-weight:800;
+    text-align:center;
+    line-height:26px;
+    margin-top:3px;
+  }
+  .sec-head h2{
+    display:table-cell;
+    vertical-align:top;
+    padding-left:10px;
+    margin:0;
+    font-size:19px;
+    font-weight:800;
+    color:var(--ink-strong);
+    letter-spacing:-0.02em;
+    line-height:1.45;
+  }
+  h3{
+    font-size:15.5px;
+    font-weight:800;
+    color:var(--ink-strong);
+    margin:26px 0 8px;
+    letter-spacing:-0.01em;
+  }
+  h4{
+    font-size:14px;
+    font-weight:800;
+    color:#1e293b;
+    margin:18px 0 6px;
+  }
+  p{margin:10px 0;}
+  ul,ol{padding-left:20px;}
+  li{margin:4px 0;}
+  code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:12.5px;
+    background:#f1f5f9;
+    border:1px solid #e2e8f0;
+    border-radius:5px;
+    padding:1px 5px;
+    color:#0f172a;
+  }
+  .kbd{
+    display:inline-block;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:11.5px;
+    font-weight:700;
+    padding:1px 6px;
+    border-radius:5px;
+    border:1px solid #cbd5e1;
+    background:#f8fafc;
+    color:#334155;
+  }
+
+  /* ── 표 ────────────────────────────────────── */
+  .tbl-wrap{overflow-x:auto;margin:14px 0 6px;}
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13.5px;
+    background:#fff;
+  }
+  caption{
+    caption-side:top;
+    text-align:left;
+    font-size:12px;
+    color:var(--muted);
+    padding-bottom:6px;
+  }
+  th,td{
+    border:1px solid var(--line);
+    padding:9px 11px;
+    vertical-align:top;
+    text-align:left;
+  }
+  thead th{
+    background:#0f172a;
+    color:#fff;
+    font-weight:700;
+    font-size:12.5px;
+    border-color:#0f172a;
+    white-space:nowrap;
+  }
+  tbody tr:nth-child(even) td{background:#f8fafc;}
+  td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink-strong);}
+  td.c{text-align:center;white-space:nowrap;}
+  .tag{
+    display:inline-block;
+    font-size:11.5px;
+    font-weight:700;
+    padding:1px 7px;
+    border-radius:5px;
+    white-space:nowrap;
+  }
+  .tag-ok{background:#d1fae5;color:#065f46;border:1px solid #a7f3d0;}
+  .tag-bad{background:#ffe4e6;color:#9f1239;border:1px solid #fecdd3;}
+  .tag-mid{background:#fef3c7;color:#92400e;border:1px solid #fde68a;}
+  .tag-ind{background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;}
+
+  /* ── 강조 박스 ─────────────────────────────── */
+  .box{
+    border-radius:10px;
+    padding:13px 16px;
+    margin:14px 0;
+    font-size:13.5px;
+    border:1px solid;
+  }
+  .box p:first-child{margin-top:0;}
+  .box p:last-child{margin-bottom:0;}
+  .box .box-t{
+    display:block;
+    font-weight:800;
+    font-size:12.5px;
+    margin-bottom:4px;
+  }
+  .note{background:#eff6ff;border-color:#bfdbfe;color:#1e3a8a;}
+  .note .box-t{color:#1d4ed8;}
+  .warn{background:#fffbeb;border-color:#fde68a;color:#78350f;}
+  .warn .box-t{color:#b45309;}
+  .tip{background:#ecfdf5;border-color:#a7f3d0;color:#064e3b;}
+  .tip .box-t{color:#047857;}
+
+  /* ── 그림 ──────────────────────────────────── */
+  figure{
+    margin:18px 0 6px;
+    border:1px solid var(--line);
+    border-radius:10px;
+    overflow:hidden;
+    background:#f1f5f9;
+  }
+  figure a{display:block;line-height:0;}
+  figure img{display:block;width:100%;height:auto;}
+  figcaption{
+    font-size:12px;
+    color:var(--muted);
+    padding:8px 12px;
+    border-top:1px solid var(--line);
+    background:#fff;
+    line-height:1.6;
+  }
+  figcaption b{color:#334155;}
+  .fig-portrait img{width:62%;margin:0 auto;}
+  .fig-portrait a{display:flex;justify-content:center;background:#eef2f7;padding:10px 0;}
+
+  /* ── 단계 ──────────────────────────────────── */
+  .step{
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:18px 20px 6px;
+    margin:22px 0;
+    background:#fff;
+  }
+  .step-head{margin-bottom:6px;}
+  .step-badge{
+    display:inline-block;
+    background:var(--navy);
+    color:#fff;
+    font-size:11.5px;
+    font-weight:800;
+    letter-spacing:.04em;
+    padding:3px 9px;
+    border-radius:5px;
+    margin-right:8px;
+    vertical-align:2px;
+  }
+  .step-head h3{
+    display:inline;
+    margin:0;
+    font-size:15.5px;
+  }
+  .step .lead{
+    font-size:13.5px;
+    color:#475569;
+    margin:6px 0 0;
+  }
+
+  /* ── 버튼 설명 칩 ──────────────────────────── */
+  .chiprow{margin:10px 0 4px;}
+  .chip{
+    display:inline-block;
+    font-size:12px;
+    font-weight:700;
+    padding:2px 9px;
+    border-radius:6px;
+    margin:0 6px 6px 0;
+    white-space:nowrap;
+  }
+  .chip-ui{background:#1e293b;color:#fff;}
+  .chip-g{background:#2563eb;color:#fff;}
+  .chip-e{background:#059669;color:#fff;}
+  .chip-copy{background:#fff;color:#334155;border:1px solid #cbd5e1;}
+
+  /* ── FAQ ───────────────────────────────────── */
+  .faq{border:1px solid var(--line);border-radius:10px;padding:14px 17px;margin:12px 0;background:var(--soft);}
+  .faq .q{
+    font-size:13.5px;
+    font-weight:800;
+    color:var(--ink-strong);
+    margin:0 0 6px;
+  }
+  .faq .q span{color:var(--blue);margin-right:6px;}
+  .faq .a{margin:0;font-size:13.5px;color:#475569;}
+
+  /* ── 푸터 ──────────────────────────────────── */
+  footer{
+    margin-top:44px;
+    border-top:1px solid var(--line);
+    padding-top:16px;
+    font-size:12px;
+    color:var(--muted);
+  }
+  footer p{margin:4px 0;}
+
+  /* ── 좁은 화면 ─────────────────────────────── */
+  @media (max-width:640px){
+    body{font-size:14.5px;}
+    .hero{padding:26px 20px 24px;}
+    .hero h1{font-size:21px;}
+    .wrap{padding:0 20px 30px;}
+    .quick{margin-top:-14px;padding:15px 16px;}
+    .toolbar-inner{padding:9px 14px;}
+    .btn{font-size:12px;padding:7px 10px;}
+    .fig-portrait img{width:100%;}
+    html.is-embed .hero{padding:22px 18px 20px;}
+    html.is-embed .wrap{padding:0 18px 26px;}
+  }
+
+  /* ── 인쇄(PDF) ─────────────────────────────── */
+  @media print{
+    @page{
+      size:A4;
+      margin:14mm 13mm 15mm;
+    }
+    body{background:#fff;font-size:9.9pt;line-height:1.58;}
+    section{margin-top:16px;}
+    h3{margin:16px 0 6px;}
+    h4{margin:12px 0 4px;}
+    p{margin:7px 0;}
+    .faq{padding:10px 14px;margin:9px 0;}
+    .box{margin:10px 0;padding:10px 13px;}
+    .toc{margin:14px 0 4px;padding:12px 16px;}
+    .quick{padding:14px 16px;}
+    .toolbar,.no-print{display:none!important;}
+    .page{max-width:none;box-shadow:none;border-radius:0;margin:0;}
+    .hero{padding:16px 0 12px;background:#fff;color:#0f172a;border-bottom:2px solid #0f172a;}
+    .hero-kicker{color:#1d4ed8;background:#eff6ff;border-color:#bfdbfe;}
+    .hero h1{font-size:19pt;color:#0f172a;}
+    .hero p{color:#334155;}
+    .hero-meta{color:#64748b;margin-top:8px;}
+    .hero-meta b{color:#0f172a;}
+    .wrap{padding:0;}
+    .quick{margin-top:12px;box-shadow:none;border:1px solid #cbd5e1;page-break-inside:avoid;}
+    .toc{page-break-inside:avoid;}
+    section{page-break-before:auto;margin-top:20px;}
+    .sec-head{page-break-after:avoid;}
+    h3,h4{page-break-after:avoid;}
+    figure,.box,.faq{page-break-inside:avoid;}
+    .step{page-break-inside:auto;}
+    .step-head{page-break-after:avoid;}
+    figure{border-color:#cbd5e1;}
+    figure.fig-portrait a{text-align:center;padding:0;}
+    figure.fig-portrait img{width:58%;margin:0 auto;}
+    figcaption{background:#fff;}
+    thead{display:table-header-group;}
+    caption{page-break-after:avoid;}
+    tr{page-break-inside:avoid;}
+    .tbl-wrap{overflow:visible;}
+    .tbl-wrap.keep{page-break-inside:avoid;}
+    table{font-size:9pt;page-break-inside:auto;}
+    th,td{padding:5px 7px;}
+    a{color:#1d4ed8;}
+    .page-break{page-break-before:always;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ─────────────── 상단 도구 막대 ─────────────── -->
+<div class="toolbar no-print">
+  <div class="toolbar-inner">
+    <span class="toolbar-title">민감정보 안심마스커 사용설명서</span>
+    <div class="toolbar-actions">
+      <a class="btn btn-primary" role="button" href="#" onclick="window.print();return false;"> 인쇄 / PDF 저장</a>
+      <a class="btn" role="button" href="#" onclick="closeWindow();return false;">✕ 창 닫기</a>
+    </div>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- ─────────────── 히어로 ─────────────── -->
+  <header class="hero">
+    <span class="hero-kicker">사용설명서 · User Guide</span>
+    <h1>한글(HWPX) 문서의 개인정보만<br>골라 가리는 방법</h1>
+    <p>AI에게 문서를 넘기기 전, 외부로 자료를 보내기 전에 딱 한 번 — 주민등록번호·전화번호·계좌·이름을<br>브라우저 안에서만 가리고, 표·글자 모양·병합 셀은 그대로 남긴 <code style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25);color:#e2e8f0;">_masked.hwpx</code>를 만드는 도구입니다.</p>
+    <div class="hero-meta">
+      <span>주소 <b>hwpx-masker.vercel.app</b></span>
+      <span>대상 <b>v2 (2026-11-27 배포본)</b></span>
+      <span>화면 캡처 <b>2026.11.27 · 1280×800</b></span>
+      <span>문서 <b>v1.0</b></span>
+    </div>
+  </header>
+
+  <div class="wrap">
+
+    <!-- ─────────────── 3분 요약 ─────────────── -->
+    <div class="quick">
+      <h2>3분 요약 — 이 세 가지만 기억하세요</h2>
+      <ol>
+        <li><b>열기</b> — <code>.hwpx</code> 파일을 끌어다 놓습니다. (<code>.hwp</code> 구형 파일은 한글에서 <b>다른 이름으로 저장 → HWPX 문서</b>로 바꿔 올립니다.)</li>
+        <li><b>확인</b> — 8종 자동 탐지가 개인정보를 찾아 <b>미리보기에 표시</b>합니다. 필요 없는 항목은 토글을 끄고, 이름·부서는 라벨 후보에서 고릅니다.</li>
+        <li><b>검수 후 저장</b> — <b>전후 비교</b>로 바뀌는 곳을 눈으로 확인하고 <b>[_masked.hwpx 다운로드]</b>. 원본은 그대로 두고 새 파일로 저장됩니다.</li>
+      </ol>
+    </div>
+
+    <!-- ─────────────── 목차 ─────────────── -->
+    <nav class="toc no-print">
+      <h2>목 차</h2>
+      <ol>
+        <li><a href="#s1">이 도구는 무엇을 하나요?</a></li>
+        <li><a href="#s2">화면 한눈에 보기</a></li>
+        <li><a href="#s3">실전 사용법 5단계</a></li>
+        <li><a href="#s4">자주 쓰는 마스킹 세트(프리셋) 활용</a></li>
+        <li><a href="#s5">주의사항·한계·자주 묻는 질문</a></li>
+      </ol>
+    </nav>
+
+    <!-- ═══════════════ 1. 무엇인가요 ═══════════════ -->
+    <section id="s1">
+      <div class="sec-head">
+        <div class="sec-num"><span>1</span></div>
+        <h2>이 도구는 무엇을 하나요?</h2>
+      </div>
+
+      <p>
+        감사 처분요구서·검토서 같은 한글 문서를 <b>외부 AI에 붙여 넣거나 기관 밖으로 보내기 전</b>,
+        개인정보가 그대로 들어 있으면 그 자체가 문제가 됩니다. 안심마스커는 문서에서 <b>개인정보만</b> 찾아 가리고,
+        <b>표·글자 모양·병합 셀 같은 서식은 원본 그대로</b>인 새 문서를 만들어 줍니다.
+        파일은 <b>브라우저 메모리 안에서만</b> 처리되고, 어디로도 전송되지 않습니다.
+      </p>
+
+      <div class="tbl-wrap keep">
+        <table>
+          <caption>표 1. 전체 흐름 — 여섯 단계</caption>
+          <thead>
+            <tr><th style="width:18%">단계</th><th style="width:44%">하는 일</th><th>화면</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>① 열기</b></td><td><code>.hwpx</code>를 끌어다 놓거나 선택. 샘플 문서로 먼저 연습할 수 있습니다.</td><td>시작 화면 드롭존</td></tr>
+            <tr><td><b>② 자동 탐지</b></td><td>주민번호·전화·이메일·계좌/카드·사업자/법인·차량·상세주소·생년월일 <b>8종</b>을 찾습니다. 항목별 ON/OFF.</td><td>오른쪽 <b>자동 탐지</b></td></tr>
+            <tr><td><b>③ 맞춤 치환</b></td><td>표 라벨(성명·부서·소속 등) 옆 값 후보를 추천하고, 단어를 직접 추가합니다. <b>바꾸기 전 영향 범위</b>를 먼저 보여 줍니다.</td><td><b>성명·부서·금액 맞춤 치환</b></td></tr>
+            <tr><td><b>④ 검수</b></td><td><b>마스킹 후 / 원문 / 전후 비교</b> 3가지 뷰. 머리말·꼬리말·각주·글상자까지 점검합니다.</td><td><b>문서 미리보기</b></td></tr>
+            <tr><td><b>⑤ 저장</b></td><td><code>원본이름_masked.hwpx</code> 다운로드. 문서 메타데이터·미리보기 흔적도 정리(선택).</td><td><b>내보내기</b></td></tr>
+            <tr><td><b>⑥ 확인</b></td><td>내려받은 파일을 <b>한컴오피스(한글)</b>에서 열어 서식과 가림 상태를 최종 확인합니다.</td><td>한글 프로그램</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>서식이 깨지지 않는 이유</h3>
+      <p>
+        <code>.hwpx</code>는 ZIP 압축 파일입니다. 이 도구는 그 안의 <b>글자(<code>&lt;hp:t&gt;</code>)만</b> 바꾸고
+        태그·속성·표 구조·스타일 정의는 <b>원본 바이트 그대로</b> 다시 담습니다.
+        그래서 표·병합 셀·글자 모양이 흔들리지 않고, 한글에서 열었을 때 원본과 같은 문서로 보입니다.
+      </p>
+
+      <div class="box note">
+        <span class="box-t">‘가리는’ 방식 — 앞자리는 남기고 뒤를 별표로</span>
+        식별에 필요한 최소한만 남기는 것이 기본입니다. 예: <code>700223-1234567</code> → <code>700223-1******</code>,
+        <code>010-8990-0543</code> → <code>010-****-0543</code>, <code>hong@kitech.re.kr</code> → <code>***@kitech.re.kr</code>.
+        일반적인 <b>감사 기간·금액</b>(<code>2026.01.01. ~ 2026.12.31.</code>, <code>12,345,000원</code>)은 건드리지 않습니다.
+      </div>
+
+      <div class="box warn">
+        <span class="box-t">파일이 서버로 가지 않습니다 — 이게 이 도구의 핵심입니다</span>
+        파일은 <code>ArrayBuffer</code>로 읽어 브라우저 메모리에서만 처리하고, 압축 해제·탐지·치환·재압축은 <b>같은 페이지의 Web Worker</b>가 맡습니다.
+        외부 서버·CDN·분석 도구로 보내는 요청이 없고, <b>네트워크를 끊고 열어도 동작합니다.</b>
+        저장되는 것은 프리셋(설정)뿐이며 그것도 <b>[저장된 프리셋 모두 지우기]</b>로 즉시 지울 수 있습니다.
+      </div>
+    </section>
+
+    <!-- ═══════════════ 2. 화면 한눈에 보기 ═══════════════ -->
+    <section id="s2">
+      <div class="sec-head">
+        <div class="sec-num"><span>2</span></div>
+        <h2>화면 한눈에 보기</h2>
+      </div>
+
+      <p>접속 주소는 <b>https://hwpx-masker.vercel.app/</b> 입니다. 시작 화면은 파일을 넣는 곳 하나만 기억하면 됩니다.</p>
+
+      <figure>
+        <a href="./assets/masker-01-landing.png" target="_blank" rel="noopener">
+          <img src="./assets/masker-01-landing.png" alt="민감정보 안심마스커 시작 화면 — HWPX 파일 드롭존, 샘플 체험 버튼, 주요 기능 4개 카드">
+        </a>
+        <figcaption><b>화면 1.</b> 시작 화면 — ①상단 배지 <b>100% 브라우저 오프라인 처리 · 서버 전송 없음</b> ②드롭존 ③<b>[감사 처분요구서 샘플 .hwpx로 체험하기]</b> ④기능 안내 4개. 오른쪽 위 <b>☾/☀</b>는 라이트·다크 전환입니다. <span class="no-print">(클릭하면 원본 크기로 열립니다.)</span></figcaption>
+      </figure>
+
+      <p>샘플(<b>감사처분요구서_샘플.hwpx</b>)은 가상의 문서이며, 열면 아래처럼 작업 화면으로 넘어갑니다.</p>
+
+      <figure>
+        <a href="./assets/masker-02-workspace.png" target="_blank" rel="noopener">
+          <img src="./assets/masker-02-workspace.png" alt="샘플 문서를 연 작업 화면 — 왼쪽 문서 미리보기(마스킹 후), 오른쪽 한눈에 보기 통계와 자동 탐지 8종 목록">
+        </a>
+        <figcaption><b>화면 2.</b> 작업 화면 — 왼쪽은 <b>문서 미리보기</b>(가려질 곳이 <span style="color:#b45309;font-weight:700;">노란 표시</span>), 오른쪽은 <b>한눈에 보기</b>(가릴 항목 14 · 치환 위치 32 · 제외 0)와 <b>자동 탐지</b> 8종(항목별 건수 배지). <span class="no-print">(클릭하면 원본 크기)</span></figcaption>
+      </figure>
+
+      <div class="tbl-wrap">
+        <table>
+          <caption>표 2. 화면 구성 요소와 역할 — 실제 버튼 이름 그대로</caption>
+          <thead>
+            <tr><th style="width:5%">No</th><th style="width:24%">영역</th><th>하는 일</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="c">①</td><td><b>파일 정보 줄</b></td><td>연 파일 이름과 <b>크기 · 문단 수 · 표 수 · 구역 수 · 본문 외 영역 수</b>, 처리 엔진(<b>⚙ Web Worker</b>) 표시. 오른쪽 <b>[다른 파일 열기]</b>.</td></tr>
+            <tr><td class="c">②</td><td><b>문서 미리보기</b></td><td>가려질 곳이 노란 표시로 보입니다. 위 탭으로 <b>마스킹 후 · 원문 · 전후 비교</b>를 전환합니다.</td></tr>
+            <tr><td class="c">③</td><td><b>한눈에 보기</b></td><td><b>가릴 항목</b>(서로 다른 값의 수) · <b>치환 위치</b>(문서에서 바뀌는 곳) · <b>제외</b>(문맥 단위로 뺀 곳). 아래에 요약 문장과 꺼 둔 탐지 항목 안내.</td></tr>
+            <tr><td class="c">④</td><td><b>자동 탐지</b></td><td>8종 항목의 체크박스·예시·건수. 끄면 목록·건수·미리보기·실제 치환이 <b>그 자리에서 함께</b> 바뀝니다. 오른쪽 <b>[전체 끄기]/[전체 켜기]</b>.</td></tr>
+            <tr><td class="c">⑤</td><td><b>성명·부서·금액 맞춤 치환</b></td><td>표 라벨 옆 값 후보(칩)와 직접 입력 폼. 바꿀 단어를 추가하면 <b>영향 범위</b> 패널이 열립니다.</td></tr>
+            <tr><td class="c">⑥</td><td><b>가릴 항목</b></td><td>찾은 값 목록 — <b>원본 → 가린 결과</b>, 종류, 몇 곳인지. 맞춤 항목은 <b>단어/부분</b> 표시와 <b>[범위]</b>·<b>[✕]</b> 버튼이 붙습니다.</td></tr>
+            <tr><td class="c">⑦</td><td><b>본문 외 영역 점검</b></td><td>머리말·꼬리말·각주·미주·글상자·캡션을 같은 규칙으로 점검한 결과(민감정보가 없으면 그렇게 표시).</td></tr>
+            <tr><td class="c">⑧</td><td><b>내보내기</b></td><td><b>[_masked.hwpx 다운로드]</b> · <b>[AI 입력용 마스킹 텍스트 복사]</b> · 메타데이터 초기화 / 미리보기 흔적 정리 체크박스.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══════════════ 3. 실전 사용법 5단계 ═══════════════ -->
+    <section id="s3">
+      <div class="sec-head">
+        <div class="sec-num"><span>3</span></div>
+        <h2>실전 사용법 5단계</h2>
+      </div>
+
+      <!-- STEP 1 -->
+      <div class="step">
+        <div class="step-head">
+          <span class="step-badge">STEP 1</span>
+          <h3>문서 열기 — .hwpx만 열립니다</h3>
+        </div>
+        <p class="lead">가릴 문서를 엽니다. 구형 <code>.hwp</code>는 먼저 HWPX로 저장해야 합니다.</p>
+
+        <ol>
+          <li><b>파일을 드롭존에 끌어다 놓거나</b> 드롭존을 눌러 파일을 고릅니다. 창 위에 파일을 놓아도 열립니다.</li>
+          <li><code>.hwp</code>(구형 바이너리)를 올리면 <b>“구형 .hwp 파일은 바로 열 수 없습니다. 한글에서 [다른 이름으로 저장 → HWPX 문서]로 변환한 뒤 올려주세요.”</b> 안내가 나옵니다. 한글에서 <b>F12(다른 이름으로 저장)</b> → 파일 형식 <b>HWPX 문서</b>로 저장하세요.</li>
+          <li>문서가 크면 진행률 창이 뜨며 <b>“압축을 푸는 중 → 문서를 읽는 중”</b> 단계와 퍼센트를 보여 줍니다(저장할 때는 <b>“민감정보를 가리는 중 → 메타데이터를 지우는 중 → 파일을 다시 압축하는 중”</b>). 60MB를 넘는 파일은 나누어 올려 달라는 안내가 나옵니다.</li>
+          <li>연습만 해 보려면 <b>[감사 처분요구서 샘플 .hwpx로 체험하기]</b>. 실제 문서처럼 자유롭게 시험할 수 있습니다.</li>
+        </ol>
+
+        <div class="box tip">
+          <span class="box-t">샘플 문서로 먼저 익히면 실수가 없습니다</span>
+          샘플에는 표 병합 셀, 머리말·꼬리말·각주, 이름·부서 후보, 금액·기간이 모두 들어 있습니다.
+          이 문서로 <b>토글 → 맞춤 치환 → 전후 비교 → 다운로드</b>를 한 번 돌려 보면 실제 업무 문서에서 헤매지 않습니다.
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div class="step">
+        <div class="step-head">
+          <span class="step-badge">STEP 2</span>
+          <h3>자동 탐지 — 8종을 확인하고 필요 없는 항목은 끄기</h3>
+        </div>
+        <p class="lead">문서를 열면 바로 자동 탐지 결과가 나옵니다. <b>항목별 체크박스</b>로 가릴 종류를 정합니다.</p>
+
+        <div class="tbl-wrap">
+          <table>
+            <caption>표 3. 자동 탐지 8종과 가리는 방식 (실제 예시)</caption>
+            <thead>
+              <tr><th style="width:24%">항목</th><th style="width:34%">원본 → 결과</th><th>설명</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><b>주민등록번호·외국인등록번호</b></td><td><code>700223-1234567</code> → <code>700223-1******</code></td><td>앞 7자리만 남깁니다.</td></tr>
+              <tr><td><b>휴대전화·유선전화</b></td><td><code>010-8990-0543</code> → <code>010-****-0543</code><br><code>041-589-8000</code> → <code>041-***-8000</code></td><td>국번과 끝 4자리를 남깁니다.</td></tr>
+              <tr><td><b>이메일</b></td><td><code>hong@kitech.re.kr</code> → <code>***@kitech.re.kr</code></td><td>아이디만 가리고 도메인은 남깁니다.</td></tr>
+              <tr><td><b>계좌번호·카드번호</b></td><td><code>123-456-789012</code> → <code>123-***-******</code><br><code>1234-5678-9012-3456</code> → <code>1234-****-****-****</code></td><td>앞부분(은행 구분·카드 앞 4자리)만 남깁니다.</td></tr>
+              <tr><td><b>사업자등록번호·법인등록번호</b></td><td><code>123-45-67890</code> → <code>123-**-*****</code></td><td>앞 3자리만 남깁니다.</td></tr>
+              <tr><td><b>차량번호</b></td><td><code>12가 3456</code> → <code>12가 ****</code></td><td>뒤 숫자 4자리를 가립니다.</td></tr>
+              <tr><td><b>상세 주소</b></td><td><code>충청남도 천안시 동남구 대흥로 123, 4층 402호</code> → <code>충청남도 천안시 동남구 *** **** ** ****</code></td><td>시·군·구까지 남기고 뒤를 가립니다.</td></tr>
+              <tr><td><b>생년월일</b></td><td><code>생년월일 1970.02.23</code> → <code>생년월일 1970.**.**</code></td><td>연도만 남깁니다.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <figure>
+          <a href="./assets/masker-04-toggle.png" target="_blank" rel="noopener">
+            <img src="./assets/masker-04-toggle.png" alt="자동 탐지에서 계좌번호·카드번호 항목을 끈 화면 — 가릴 항목 12, 치환 위치 29로 줄고 자동 탐지 1종 꺼짐 안내가 표시됨">
+          </a>
+          <figcaption><b>화면 3.</b> <b>계좌번호·카드번호</b> 토글을 끈 상태 — 가릴 항목 <b>14 → 12</b>, 치환 위치 <b>32 → 29</b>, 요약 문장에 <b>“자동 탐지 1종 꺼짐”</b>. 목록·배지·미리보기 표시가 함께 바뀝니다. <span class="no-print">(클릭하면 원본 크기)</span></figcaption>
+        </figure>
+
+        <div class="box note">
+          <span class="box-t">주민등록번호와 법인등록번호는 모양이 같습니다</span>
+          둘 다 <code>숫자 6-숫자 7</code> 형태라 기계적으로는 구분이 안 됩니다. 이 도구는 <b>표 라벨과 앞 단어(법인) 문맥</b>을 보고 갈라냅니다.
+          라벨이 없는 곳에서 헷갈리는 값이 보이면 <b>[가릴 항목]</b>에서 실제 값을 확인하고, 필요하면 항목 체크를 풀거나 직접 규칙을 추가하세요.
+        </div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div class="step">
+        <div class="step-head">
+          <span class="step-badge">STEP 3</span>
+          <h3>이름·부서·금액 — 라벨을 보고 추천, 바꾸기 전에 범위 확인</h3>
+        </div>
+        <p class="lead">이름·부서·금액은 모양만으로는 개인정보인지 알 수 없습니다. 그래서 <b>표 라벨</b>을 단서로 후보만 추천하고, 최종 선택은 사람이 합니다.</p>
+
+        <ol>
+          <li><b>성명·부서·금액 맞춤 치환</b> 카드에 표 라벨(<b>성명 · 대상자 · 피감사인 · 부서 · 소속 · 기관명 · 업체명</b>) 옆 값 후보가 칩으로 나옵니다. 필요한 값의 체크를 켭니다.</li>
+          <li>없는 값은 <b>직접 입력</b>합니다(예: <code>홍길동</code>, <code>감사실</code>, <code>3,250,000원</code>). 가리는 방식을 함께 고릅니다 — <b>자동 / 가운데 가리기(홍OO) / 끝 가리기(OO실) / 전부 가리기(***) / 금액 가리기(*,***,***원)</b>.</li>
+          <li>추가하면 <b>“「감사」를 어디까지 바꿀까요?”</b> 패널이 열립니다. 기본값은 <b>단어 일치(권장)</b> — 「피감사인」 속 「감사」처럼 다른 단어에 붙은 글자는 건드리지 않습니다.</li>
+          <li><b>부분 일치</b>를 고르면 다른 단어 안의 글자까지 바뀝니다. 건수와 <b>영향을 받는 문맥 목록</b>이 함께 나오니, 빼야 할 문맥은 체크를 풀고 <b>[이대로 가리기]</b>를 누릅니다.</li>
+          <li>미리보기에서 <b>단어를 더블클릭하거나 드래그</b>해도 같은 방식으로 추가됩니다(2글자 이상).</li>
+        </ol>
+
+        <div class="box tip">
+          <span class="box-t">“감사”가 “피감사인”을 망가뜨리지 않게</span>
+          단어 일치는 문맥 경계에서만 찾습니다. 예를 들어 <b>감사</b>를 가려도 <b>피감사인</b>·<b>감사기간</b>의 글자는 그대로 남습니다.
+          반대로 문서 어디서나 같은 글자를 지우고 싶다면 <b>부분 일치</b>를 쓰고, 결과를 꼭 확인하세요.
+        </div>
+      </div>
+
+      <!-- STEP 4 -->
+      <div class="step">
+        <div class="step-head">
+          <span class="step-badge">STEP 4</span>
+          <h3>전후 비교로 검수 — 바뀌는 문단만 모아 보기</h3>
+        </div>
+        <p class="lead">저장 전 마지막 관문입니다. <b>전후 비교</b> 탭은 바뀌는 문단만 모아 <b>원문(노랑·취소선)</b>과 <b>가린 결과(초록)</b>를 나란히 보여 줍니다.</p>
+
+        <figure>
+          <a href="./assets/masker-03-compare.png" target="_blank" rel="noopener">
+            <img src="./assets/masker-03-compare.png" alt="전후 비교 탭 — 22개 문단·32곳 변경, 머리말·꼬리말·본문·각주 문단별로 원문과 이후를 나란히 표시">
+          </a>
+          <figcaption><b>화면 4.</b> <b>전후 비교</b> — 위에 <b>22개 문단 · 32곳 변경</b>, 문단마다 위치(<b>머리말 · 꼬리말 · 본문 N번째 문단 · 각주</b>)와 원문/이후가 표시됩니다. <span class="no-print">(클릭하면 원본 크기)</span></figcaption>
+        </figure>
+
+        <ul>
+          <li><b>머리말·꼬리말·각주·미주·글상자·캡션</b>도 본문과 같은 규칙으로 가려지고, <b>본문 외 영역 점검</b> 카드에서 따로 확인할 수 있습니다.</li>
+          <li>잘못 가려진 값이 보이면 <b>가릴 항목</b>에서 그 줄의 체크를 끄거나 <b>[✕]</b>로 목록에서 빼고, 다시 비교합니다.</li>
+          <li>맞춤 항목은 <b>[범위]</b> 버튼으로 언제든 영향 범위 패널을 다시 열어 문맥별 제외를 조정할 수 있습니다.</li>
+          <li><b>제외</b> 숫자는 문맥 단위로 뺀 곳의 수입니다. 0이면 모든 탐지 값이 그대로 가려집니다.</li>
+        </ul>
+      </div>
+
+      <!-- STEP 5 -->
+      <div class="step">
+        <div class="step-head">
+          <span class="step-badge">STEP 5</span>
+          <h3>저장 — _masked.hwpx 다운로드</h3>
+        </div>
+
+        <figure class="fig-portrait">
+          <a href="./assets/masker-05-export.png" target="_blank" rel="noopener">
+            <img src="./assets/masker-05-export.png" alt="자주 쓰는 마스킹 세트 카드와 내보내기 카드 — _masked.hwpx 다운로드, AI 입력용 마스킹 텍스트 복사, 메타데이터·미리보기 흔적 정리 체크박스">
+          </a>
+          <figcaption><b>화면 5.</b> 오른쪽 아래 <b>자주 쓰는 마스킹 세트</b>와 <b>내보내기</b>. 두 체크박스는 기본으로 켜져 있습니다. <span class="no-print">(클릭하면 원본 크기)</span></figcaption>
+        </figure>
+
+        <div class="tbl-wrap keep">
+          <table>
+            <caption>표 4. 내보내기 버튼과 옵션</caption>
+            <thead>
+              <tr><th style="width:32%">항목</th><th>내용</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><b>_masked.hwpx 다운로드</b></td><td>원본은 그대로 두고 <b><code>원본이름_masked.hwpx</code></b>로 저장합니다. 저장 후 <b>“저장했습니다 · 파일이름 (크기) · 메타데이터 N항목 초기화”</b> 안내가 나옵니다.</td></tr>
+              <tr><td><b>AI 입력용 마스킹 텍스트 복사</b></td><td>가린 본문을 <b>일반 텍스트</b>로 복사합니다. 챗GPT·제미나이 등에 문서를 ‘첨부’하지 않고 문장만 물어볼 때 씁니다. 서식은 빠지고 글자만 남습니다.</td></tr>
+              <tr><td><b>문서 메타데이터도 초기화</b><br><span style="font-size:12px;color:#64748b;">기본 켜짐</span></td><td>작성자·최종수정자·제목·요약·최근 경로·사용자 이름 등 <b>작성자 계열 값</b>을 비웁니다. 문서 서식 정의는 유지됩니다.</td></tr>
+              <tr><td><b>문서 미리보기 흔적도 함께 정리</b><br><span style="font-size:12px;color:#64748b;">기본 켜짐</span></td><td>한글이 문서 안에 남기는 미리보기 텍스트(<code>PrvText</code>)를 <b>가린 문장으로 다시 쓰고</b>, 미리보기 썸네일은 빈 이미지로 바꿉니다. 겉으로 보이지 않는 곳에 원문이 남는 것을 막습니다.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="box warn">
+          <span class="box-t">내려받은 파일은 꼭 한글에서 열어 확인하세요</span>
+          미리보기는 문서의 <b>글자 흐름을 보여 주는 근사 화면</b>입니다. 실제 표·셀 병합·글자 모양은 내려받은 HWPX 파일에 그대로 들어 있으므로,
+          <b>한컴오피스(한글)에서 열어</b> ① 서식이 원본과 같은지 ② 개인정보가 남지 않았는지 <b>마지막으로 눈으로 확인</b>하고 외부로 보내세요.
+          아주 큰 문서는 미리보기가 앞부분만 그려질 수 있지만, <b>치환은 문서 전체에 적용</b>됩니다.
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ 4. 프리셋 ═══════════════ -->
+    <section id="s4">
+      <div class="sec-head">
+        <div class="sec-num"><span>4</span></div>
+        <h2>자주 쓰는 마스킹 세트(프리셋) 활용</h2>
+      </div>
+
+      <p>
+        같은 종류의 문서를 반복해서 가린다면, 지금 설정(탐지 항목 + 맞춤 치환 규칙)을 <b>이름 붙여 저장</b>해 두고 다음 문서에서 <b>[불러오기]</b>로 되살립니다.
+        예: <b>“감사보고서 기본”</b> — 주민번호·전화·계좌·주소 ON, 이름·부서 후보 포함.
+      </p>
+
+      <ol>
+        <li>이름(최대 24자)을 넣고 <b>[저장]</b>. 목록에 <b>규칙 N개 · 저장 날짜</b>와 함께 표시됩니다.</li>
+        <li><b>[불러오기]</b>로 그 설정을 그대로 적용합니다.</li>
+        <li><b>[삭제]</b>는 한 번 더 눌러야 확정됩니다(오조작 방지).</li>
+        <li>공용 PC에서 쓰셨다면 <b>[저장된 프리셋 모두 지우기]</b> — 이것도 <b>두 번 눌러</b> 확정합니다.</li>
+      </ol>
+
+      <div class="box note">
+        <span class="box-t">프리셋은 이 브라우저에만 저장됩니다</span>
+        프리셋은 <code>localStorage</code>에만 남습니다. 다른 PC·다른 브라우저에서는 보이지 않고, 브라우저 데이터를 지우면 함께 사라집니다.
+        <b>문서 내용은 저장되지 않습니다</b> — 새로고침하면 열어 둔 문서 작업은 사라지니, 내려받은 <code>_masked.hwpx</code>를 보관하세요.
+      </div>
+    </section>
+
+    <!-- ═══════════════ 5. 주의 / FAQ ═══════════════ -->
+    <section id="s5">
+      <div class="sec-head">
+        <div class="sec-num"><span>5</span></div>
+        <h2>주의사항·한계·자주 묻는 질문</h2>
+      </div>
+
+      <h3>① 먼저 알아 두실 한계</h3>
+      <div class="tbl-wrap keep">
+        <table>
+          <caption>표 5. 한계와 대응</caption>
+          <thead>
+            <tr><th style="width:32%">한계</th><th>대응</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>.hwp</code>(구형 바이너리)는 열 수 없습니다.</td><td>한글에서 <b>다른 이름으로 저장 → HWPX 문서</b>로 변환 후 올립니다.</td></tr>
+            <tr><td>암호가 걸린 문서·DRM 문서는 열리지 않습니다.</td><td>암호를 먼저 풀거나, 원본 작성자에게 받아 다시 시도합니다.</td></tr>
+            <tr><td>이름·부서·금액은 <b>자동으로 추측하지 않습니다.</b></td><td>오탐을 막기 위한 설계입니다. 라벨 후보 + 직접 지정으로 처리하세요.</td></tr>
+            <tr><td>미리보기는 <b>근사 화면</b>이고, 아주 큰 문서는 앞부분만 그립니다.</td><td>치환은 전체에 적용되지만, 최종 확인은 <b>한글에서 원본 서식</b>으로 합니다.</td></tr>
+            <tr><td>메타데이터 초기화는 <b>작성자 계열 값</b>만 비웁니다.</td><td>문서 서식 정의는 유지됩니다. 그 밖의 흔적은 사용자가 따로 확인하세요.</td></tr>
+            <tr><td>60MB가 넘는 파일은 받지 않습니다.</td><td>한글에서 문서를 나누어 처리합니다.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>② 자주 묻는 질문</h3>
+
+      <div class="faq">
+        <p class="q"><span>Q1.</span>파일이 정말 어디로도 전송되지 않나요?</p>
+        <p class="a">전송되지 않습니다. 파일은 브라우저 메모리에서만 처리되고, 압축 해제·탐지·치환·재압축을 이 페이지 안의 <b>Web Worker</b>가 맡습니다.
+        외부 서버·CDN·통계 도구로 보내는 요청이 없어서 <b>네트워크를 끊어도 동작</b>합니다. 화면 위 배지의 <b>“100% 브라우저 오프라인 처리 · 서버 전송 없음”</b>이 이 뜻입니다.</p>
+      </div>
+
+      <div class="faq">
+        <p class="q"><span>Q2.</span>가린 곳이 너무 많거나, 꼭 남겨야 할 값이 가려졌습니다.</p>
+        <p class="a"><b>자동 탐지</b>에서 그 항목 체크를 끄면 전체에서 빠집니다. 한 값만 빼고 싶으면 <b>가릴 항목</b> 목록에서 그 줄의 <b>체크를 끄거나 [✕]</b>로 빼세요.
+        맞춤 치환은 <b>[범위]</b>에서 문맥별로 제외할 수 있습니다.</p>
+      </div>
+
+      <div class="faq">
+        <p class="q"><span>Q3.</span>표 안의 값이 가려지지 않고 남았습니다.</p>
+        <p class="a">표 라벨이 없는 값은 후보로 잡히지 않을 수 있습니다. <b>맞춤 치환</b>에 그 값을 직접 추가하거나, 미리보기에서 해당 단어를 <b>더블클릭</b>해 추가하세요.
+        전후 비교에서 그 문단이 바뀌는지 확인하면 확실합니다.</p>
+      </div>
+
+      <div class="faq">
+        <p class="q"><span>Q4.</span>저장한 파일을 한글에서 열었더니 표가 달라 보입니다.</p>
+        <p class="a">한글에서 <b>글자만</b> 바뀌고 표·셀 병합·글자 모양 정의는 원본 그대로입니다. 미리보기와 실제 서식은 다를 수 있으니 <b>실제 HWPX를 열어</b> 판단하세요.
+        만약 표 구조 자체가 달라졌다면 원본 파일을 다시 올려 재작업하고, 그 사실을 함께 남겨 주세요.</p>
+      </div>
+
+      <div class="faq">
+        <p class="q"><span>Q5.</span>AI에게 문서를 그대로 주면 안 되나요?</p>
+        <p class="a">업무 문서에는 이름·연락처·계좌 같은 정보가 함께 들어 있는 경우가 많습니다. <b>_masked.hwpx</b> 또는 <b>[AI 입력용 마스킹 텍스트 복사]</b>로 가린 뒤 넘기면,
+        문장 구조와 맥락은 그대로 두고 신원 정보만 뺄 수 있습니다.</p>
+      </div>
+
+      <div class="faq">
+        <p class="q"><span>Q6.</span>작업 중이던 내용이 사라졌습니다.</p>
+        <p class="a">문서 작업 내용은 <b>어디에도 저장하지 않습니다</b>(새로고침 시 사라짐). 내려받은 <code>_masked.hwpx</code>가 결과물이므로, 검수가 끝나면 바로 저장하세요.
+        프리셋(설정)만 브라우저에 남습니다.</p>
+      </div>
+
+      <h3>③ 실무에서 이렇게 쓰세요</h3>
+      <ul>
+        <li><b>외부 AI 활용</b> — 처분요구서 초안을 AI에 붙여 넣기 전, <b>[AI 입력용 마스킹 텍스트 복사]</b>로 문장만 넘깁니다.</li>
+        <li><b>정보공개·공유</b> — 협업 부서에 보낼 사본은 <code>_masked.hwpx</code>로. 원본은 <b>원래 파일 이름 그대로</b> 보관됩니다.</li>
+        <li><b>반복 문서</b> — “감사보고서 기본” 프리셋을 저장해 두고 다음 문서에서 <b>[불러오기]</b>.</li>
+      </ul>
+    </section>
+
+    <footer>
+      <p><b>민감정보 안심마스커 — 사용설명서</b> <span style="color:#1d4ed8;font-weight:700;">v1.0</span></p>
+      <p>화면 캡처 5장은 2026년 11월 27일 실서비스(<b>https://hwpx-masker.vercel.app/</b>, v2 배포본)를 PC 1280×800에서 직접 조작해 찍은 것입니다. 캡처에 쓰인 문서는 앱에 내장된 <b>가상 샘플</b>입니다.</p>
+      <p>대상 기능 — 8종 자동 탐지와 항목별 토글 · 표 라벨 기반 맞춤 치환 · 단어/부분 일치와 문맥별 제외 · 본문 외 영역 점검 · 전후 비교 · 메타데이터 초기화 · 미리보기 흔적 정리 · <code>_masked.hwpx</code> 다운로드 · 프리셋.</p>
+      <p><b>v1.0 작성(2026.11.27)</b> — 최초 작성. 배포 전 검토본이며, 각 앱의 <b>guide.html</b>로 옮길 때 이미지 경로는 <code>./assets/</code> 기준입니다.</p>
+    </footer>
+
+  </div><!-- /.wrap -->
+</div><!-- /.page -->
+
+<script>
+  function closeWindow(){
+    // 앱 내 iframe 모달로 열린 경우: 부모 창에 닫기 요청
+    if(window.parent && window.parent !== window){
+      try{ window.parent.postMessage({type:'masker-guide-close'}, '*'); }catch(e){}
+      return;
+    }
+    window.close();
+    setTimeout(function(){
+      if(!window.closed && document.body){
+        var t=document.createElement('div');
+        t.textContent='이 창은 브라우저가 직접 연 탭이라 스스로 닫을 수 없습니다. 탭을 닫아 주세요.';
+        t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#0f172a;color:#fff;font-size:13px;padding:10px 16px;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.3);z-index:99;max-width:90%;';
+        document.body.appendChild(t);
+        setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); },4000);
+      }
+    },300);
+  }
+</script>
+</body>
+</html>
