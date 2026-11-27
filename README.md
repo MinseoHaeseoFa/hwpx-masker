@@ -5,6 +5,7 @@
 
 - 라이브: <https://hwpx-masker.vercel.app/>
 - 저장소: <https://github.com/MinseoHaeseoFa/hwpx-masker>
+- 사용설명서: <https://hwpx-masker.vercel.app/guide.html> (앱 상단 **📖 사용설명서** 버튼)
 
 > AI에게 문서를 넘기기 전, 또는 외부에 자료를 보내기 전에 딱 한 번 쓰는 도구입니다.
 > 가린 뒤에도 표·글자 모양·병합 셀 등 **원본 서식은 그대로** 남습니다.
