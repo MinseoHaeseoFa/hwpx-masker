@@ -637,10 +637,10 @@ def main():
         return "\n".join(files[n].decode("utf-8", "ignore")
                          for n in ("Contents/content.hpf", "settings.xml", "Contents/header.xml") if n in files)
 
-    check("홍길동" not in meta_text(m1) and "신운철" not in meta_text(m1),
+    check("홍길동" not in meta_text(m1) and "김민수" not in meta_text(m1),
           "다운로드본에서 작성자·최종수정자 메타데이터가 사라졌다")
     check("C:\\Users" not in meta_text(m1), "다운로드본에서 경로 메타데이터가 사라졌다")
-    check("홍길동" in meta_text(m2) and "신운철" in meta_text(m2),
+    check("홍길동" in meta_text(m2) and "김민수" in meta_text(m2),
           "옵션을 끈 파일에는 메타데이터가 그대로 남는다")
     check(t1 == t2, "메타데이터 옵션과 무관하게 본문 마스킹 결과는 같다")
 

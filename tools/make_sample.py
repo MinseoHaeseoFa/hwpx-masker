@@ -99,7 +99,7 @@ SPLITS = [
 
 # 가상의 작성자 메타데이터(초기화 기능 검증용)
 META_CREATOR = "홍길동"
-META_LASTSAVE = "신운철"
+META_LASTSAVE = "김민수"
 META_PATH = "C:\\Users\\홍길동\\Desktop\\감사자료\\처분요구서.hwpx"
 META_SUBJECT = "2026년 내부감사 처분"
 
