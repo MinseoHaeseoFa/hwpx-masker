@@ -814,6 +814,16 @@
   }
 
   /* ── 메타데이터 초기화 ──────────────────────────── */
+  /*
+   * 여는 태그 속성부(from `\b` 뒤 ~ `>` 앞).
+   * self-closing(`<opf:meta name="subject" content="text"/>`) 태그를 여는 태그로 오인하면
+   * `[^>]*>` 가 `/` 뒤의 `>` 까지 삼키고, 짝이 맞지 않는 다음 요소의 `</opf:meta>` 를 끌어와
+   * `<opf:meta .../></opf:meta>` 처럼 XML 이 깨진다. 그래서 `/>` 는 여기서 소비하지 못하게 막고,
+   * 속성값 안의 `>`·`/`·따옴표는 한 덩어리로 건너뛰어 오탐 없이 여는 태그만 잡는다.
+   */
+  const ATTRS = '(?:[^>"\'/]|/(?!>)|"[^"]*"|\'[^\']*\')*?';  // lazy: 이름 속성을 먼저 찾음
+  const META_NAME = '(author|creator|writer|lastsaveby|lastmodifiedby|username|company|description|subject|keyword|title|contributor|publisher|source|rights|coverage)';
+
   function sanitizeMetadataText(name, xml) {
     let out = xml;
     let changed = 0;
@@ -824,23 +834,31 @@
       });
     };
     if (/content\.hpf$/i.test(name)) {
-      blank(/(<opf:title\b[^>]*>)([\s\S]*?)(<\/opf:title>)/g);
-      blank(/(<dc:[A-Za-z]+\b[^>]*>)([\s\S]*?)(<\/dc:[A-Za-z]+>)/g);
-      out = out.replace(/(<opf:meta\b[^>]*\bname="([^"]+)"[^>]*>)([\s\S]*?)(<\/opf:meta>)/g,
+      blank(new RegExp(`(<opf:title\\b${ATTRS}>)([\\s\\S]*?)(<\\/opf:title>)`, 'g'));
+      blank(new RegExp(`(<dc:[A-Za-z]+\\b${ATTRS}>)([\\s\\S]*?)(<\\/dc:[A-Za-z]+>)`, 'g'));
+      out = out.replace(
+        new RegExp(`(<opf:meta\\b${ATTRS}\\bname="([^"]+)"${ATTRS}>)([\\s\\S]*?)(<\\/opf:meta>)`, 'g'),
         (m, open, metaName, inner, close) => {
           if (/^language$/i.test(metaName)) return m;
           if (inner && inner.trim()) changed += 1;
           return open + close;
         });
     } else if (/settings\.xml$/i.test(name)) {
-      out = out.replace(/(<config:config-item\b[^>]*\bconfig:name="([^"]+)"[^>]*>)([\s\S]*?)(<\/config:config-item>)/g,
+      out = out.replace(
+        new RegExp(`(<config:config-item\\b${ATTRS}\\bconfig:name="([^"]+)"${ATTRS}>)([\\s\\S]*?)(<\\/config:config-item>)`, 'g'),
         (m, open, cfgName, inner, close) => {
           if (!/(path|folder|dir|recent|file|url|user|author|writer|company|template|title)/i.test(cfgName)) return m;
           if (inner && inner.trim()) changed += 1;
           return open + close;
         });
     } else if (/header\.xml$/i.test(name)) {
-      blank(/(<(?:[A-Za-z0-9]+:)?(author|creator|writer|lastsaveby|lastmodifiedby|username|company|description|subject|keyword|title|contributor|publisher|source|rights|coverage)\b[^>]*>)([\s\S]*?)(<\/(?:[A-Za-z0-9]+:)?\1>)/gi);
+      // 닫는 태그 이름은 \2(태그 이름 캡처)로 맞춘다. (\1 은 여는 태그 전체라 어떤 요소도 매칭되지 않던 오류)
+      out = out.replace(
+        new RegExp(`(<(?:[A-Za-z0-9]+:)?${META_NAME}\\b${ATTRS}>)([\\s\\S]*?)(<\\/(?:[A-Za-z0-9]+:)?\\2>)`, 'gi'),
+        (m, open, metaName, inner, close) => {
+          if (inner && inner.trim()) changed += 1;
+          return open + close;
+        });
     }
     return { xml: out, changed };
   }

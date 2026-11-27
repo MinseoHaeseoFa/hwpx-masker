@@ -39,6 +39,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHOTS = os.path.join(ROOT, "..", "downloads", "hwpx-masker-v2-2026-11-27")
 SAMPLE = os.path.join(ROOT, "sample", "감사처분요구서_샘플.hwpx")
 STRESS = os.path.join(ROOT, "build", "stress.hwpx")
+SC_FIXTURE = os.path.join(ROOT, "build", "meta-selfclosing.hwpx")  # self-closing 메타데이터 재현 픽스처
 HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
 
 fails = []
@@ -132,6 +133,51 @@ def rhwp_info(path):
         return None
 
 
+# self-closing(<opf:meta .../>) 메타데이터 재현 픽스처
+# 실제 감사 .hwpx(content.hpf)에서 관측된 형태: 값이 없는 메타데이터는 `<opf:meta .../>` 로
+# self-closing 이고, 값이 있는 메타데이터와 섞여 있다.
+SC_METADATA = (
+    '<opf:metadata><opf:title/><opf:language>ko</opf:language>'
+    '<opf:meta name="creator" content="text">홍길동</opf:meta>'
+    '<opf:meta name="subject" content="text"/>'
+    '<opf:meta name="CreatedDate" content="text">2026-11-20T09:12:00Z</opf:meta>'
+    '<opf:meta name="keyword" content="text"/>'
+    '<opf:meta name="lastsaveby" content="text">김민수</opf:meta>'
+    '</opf:metadata>'
+)
+
+
+def make_selfclosing_fixture(src, dst):
+    """샘플 본문 그대로 두고 content.hpf 메타데이터만 self-closing 혼재 형태로 바꾼 문서."""
+    with zipfile.ZipFile(src) as z:
+        infos = z.infolist()
+        files = {i.filename: z.read(i.filename) for i in infos}
+    hpf = files["Contents/content.hpf"].decode("utf-8")
+    hpf = re.sub(r"<opf:metadata>.*?</opf:metadata>", SC_METADATA, hpf, count=1, flags=re.S)
+    if "name=\"keyword\" content=\"text\"/>" not in hpf:
+        raise SystemExit("self-closing 픽스처 생성 실패: content.hpf 메타데이터 치환")
+    files["Contents/content.hpf"] = hpf.encode("utf-8")
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with zipfile.ZipFile(dst, "w") as z:
+        for i in infos:  # mimetype 첫 엔트리·무압축 유지
+            z.writestr(i.filename, files[i.filename],
+                       compress_type=zipfile.ZIP_STORED if i.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+    return dst
+
+
+def xml_parts_broken(files):
+    """XML·HPF·RDF 파트 중 파싱에 실패한 것(태그 불일치 등) 목록."""
+    bad = []
+    for name, data in files.items():
+        if not re.search(r"\.(xml|hpf|rdf)$", name):
+            continue
+        try:
+            ET.fromstring(data.decode("utf-8"))
+        except ET.ParseError as e:
+            bad.append(f"{name}: {e}")
+    return bad
+
+
 # ─────────────────────────────── 메인 ───────────────────────────────
 def main():
     global BASE
@@ -139,6 +185,7 @@ def main():
     if not os.path.exists(SAMPLE):
         print("샘플이 없습니다. 먼저 python3 tools/make_sample.py 를 실행하세요.")
         return 1
+    make_selfclosing_fixture(SAMPLE, SC_FIXTURE)
 
     state = {}
     threading.Thread(target=serve, args=(state,), daemon=True).start()
@@ -584,7 +631,107 @@ def main():
             ok = sorted(set(cats)) == sorted(expect)
             check(ok, f"탐지 규칙: 『{text}』 → {expect or '없음'}", str(cats))
 
-        check(not console_errors, "데스크톱 콘솔 에러 0건", "; ".join(console_errors[:3]))
+        # ── 16) 메타데이터 self-closing(<tag .../>) 회귀 ──
+        # 실제 감사 .hwpx 에서 나온 형태: 값이 없는 메타데이터가 self-closing 으로 섞여 있다.
+        # (버그) self-closing 을 여는 태그로 오인해 `/>` 를 삼키고 다음 요소의 닫는 태그를 끌어와
+        #        `<opf:meta .../></opf:meta>` 처럼 XML 이 깨지고, 뒤따르는 값까지 사라졌다.
+        ns = ('xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf/" '
+              'xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0"')
+        hpf_mixed = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>'
+            f'<opf:package {ns} version="1.4"><opf:metadata>'
+            '<opf:title/><opf:language>ko</opf:language>'
+            '<opf:meta name="creator" content="text">홍길동</opf:meta>'
+            '<opf:meta name="subject" content="text"/>'
+            '<opf:meta name="CreatedDate" content="text">2026</opf:meta>'
+            '<opf:meta name="keyword" content="text"/>'
+            '<opf:meta name="description" content="text" />'
+            '<opf:title>감사 처분요구서</opf:title>'
+            '</opf:metadata></opf:package>'
+        )
+        r = page.evaluate("([n, x]) => window.Masker.sanitizeMetadataText(n, x)",
+                          ["Contents/content.hpf", hpf_mixed])
+        out_hpf = r["xml"]
+        try:
+            ET.fromstring(out_hpf)
+            parse_ok, parse_err = True, ""
+        except ET.ParseError as e:
+            parse_ok, parse_err = False, str(e)
+        check(parse_ok, "self-closing 메타데이터가 섞여도 content.hpf 가 XML 로 온전히 파싱된다", parse_err)
+        check('<opf:meta name="subject" content="text"/>' in out_hpf,
+              "self-closing(<opf:meta .../>) 태그는 형태 그대로 유지된다", out_hpf[out_hpf.find("<opf:metadata>"):][:180])
+        check('<opf:meta name="keyword" content="text"/>' in out_hpf
+              and '<opf:meta name="description" content="text" />' in out_hpf,
+              "속성 뒤 공백이 있는 self-closing 태그도 유지된다", out_hpf[out_hpf.find("<opf:metadata>"):][:180])
+        check('<opf:title/>' in out_hpf and '<opf:title></opf:title>' in out_hpf,
+              "self-closing <opf:title/> 은 남기고 값이 있는 제목만 비운다")
+        check("홍길동" not in out_hpf and ">2026<" not in out_hpf and "감사 처분요구서" not in out_hpf,
+              "값이 있는 메타데이터(작성자·날짜·제목)만 비워진다", out_hpf[out_hpf.find("<opf:metadata>"):][:200])
+        check(r["changed"] == 3, f"비운 항목 수가 정확하다 (changed={r['changed']})", str(r["changed"]))
+
+        settings_mixed = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>'
+            '<ha:HWPApplicationSetting xmlns:ha="http://www.hancom.co.kr/hwpml/2011/app" '
+            'xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0">'
+            '<config:config-item-set name="PrintInfo">'
+            '<config:config-item config:name="RecentFilePath" config:type="string">C:\\Users\\a.hwpx</config:config-item>'
+            '<config:config-item config:name="UserName" config:type="string"/>'
+            '<config:config-item config:name="UserName2" config:type="string">김민수</config:config-item>'
+            '<config:config-item config:name="ZoomX" config:type="short">100</config:config-item>'
+            '</config:config-item-set></ha:HWPApplicationSetting>'
+        )
+        r = page.evaluate("([n, x]) => window.Masker.sanitizeMetadataText(n, x)",
+                          ["settings.xml", settings_mixed])
+        out_cfg = r["xml"]
+        try:
+            ET.fromstring(out_cfg)
+            ok_cfg, err_cfg = True, ""
+        except ET.ParseError as e:
+            ok_cfg, err_cfg = False, str(e)
+        check(ok_cfg, "settings.xml 도 self-closing 이 섞여도 XML 로 파싱된다", err_cfg)
+        check('<config:config-item config:name="UserName" config:type="string"/>' in out_cfg,
+              "self-closing config-item 은 profile 로 유지된다", out_cfg[:200])
+        check("C:\\Users" not in out_cfg and "김민수" not in out_cfg,
+              "경로·사용자명 값만 비워진다", out_cfg)
+        check(">100<" in out_cfg, "일반 설정값(숫자)은 건드리지 않는다", out_cfg)
+
+        header_mixed = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>'
+            '<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head">'
+            '<hh:author/><hh:author>홍길동</hh:author><hh:company>대한계약</hh:company></hh:head>'
+        )
+        r = page.evaluate("([n, x]) => window.Masker.sanitizeMetadataText(n, x)",
+                          ["Contents/header.xml", header_mixed])
+        out_hd = r["xml"]
+        try:
+            ET.fromstring(out_hd)
+            ok_hd, err_hd = True, ""
+        except ET.ParseError as e:
+            ok_hd, err_hd = False, str(e)
+        check(ok_hd, "header.xml 도 self-closing 이 섞여도 XML 로 파싱된다", err_hd)
+        check('<hh:author/>' in out_hd and '<hh:author></hh:author>' in out_hd,
+              "header.xml: self-closing 은 남기고 값이 있는 작성자만 비운다", out_hd[:200])
+        check("홍길동" not in out_hd and "대한계약" not in out_hd, "header.xml 메타데이터 값도 비워진다", out_hd[:200])
+
+        # ── 17) 실제 사례 재현: self-closing 메타데이터 문서 end-to-end ──
+        xctx = browser.new_context(viewport={"width": 1280, "height": 800}, accept_downloads=True)
+        xp = xctx.new_page()
+        x_errors = []
+        watch(xp, x_errors, [])
+        xp.goto(BASE, wait_until="load")
+        xp.set_input_files("#fileInput", SC_FIXTURE)
+        xp.wait_for_selector("#workspace:not([hidden])", timeout=60000)
+        xp.wait_for_timeout(600)
+        check(xp.locator("#resetMeta").is_checked(), "self-closing 문서도 메타데이터 초기화 기본값 ON")
+        with xp.expect_download(timeout=60000) as dl5:
+            xp.click("#downloadBtn")
+        out5 = os.path.join(SHOTS, "self-closing_masked.hwpx")
+        dl5.value.save_as(out5)
+        xp.wait_for_timeout(300)
+        check(not x_errors, "self-closing 문서 처리 중 콘솔 에러 0건", "; ".join(x_errors[:3]))
+        xctx.close()
+
+        check(not console_errors, "데스크톱 콘솔 오류 0건", "; ".join(console_errors[:3]))
         check(not external_requests, "외부 네트워크 요청 0건(100% 로컬 처리)",
               ", ".join(sorted(set(external_requests))[:3]))
         browser.close()
@@ -643,6 +790,38 @@ def main():
     check("홍길동" in meta_text(m2) and "김민수" in meta_text(m2),
           "옵션을 끈 파일에는 메타데이터가 그대로 남는다")
     check(t1 == t2, "메타데이터 옵션과 무관하게 본문 마스킹 결과는 같다")
+
+    bad_parts = xml_parts_broken(m1)
+    check(not bad_parts, "다운로드본의 모든 XML·HPF·RDF 파트가 정상 파싱된다(태그 불일치 0건)",
+          "; ".join(bad_parts[:3]))
+
+    # self-closing 메타데이터 문서(실제 사례 재현) 산출물
+    _, m5 = read_zip(out5)
+    hpf5 = m5["Contents/content.hpf"].decode("utf-8")
+    meta5 = hpf5[hpf5.find("<opf:metadata>"):hpf5.find("</opf:metadata>")]
+    bad5 = xml_parts_broken(m5)
+    check(not bad5, "self-closing 문서 산출물의 모든 XML·HPF 파트가 정상 파싱된다", "; ".join(bad5[:3]))
+    check('<opf:meta name="subject" content="text"/>' in hpf5
+          and '<opf:meta name="keyword" content="text"/>' in hpf5,
+          "self-closing 메타데이터가 손상 없이 그대로 남는다", meta5[:200])
+    check("</>" not in hpf5 and "/></opf:meta>" not in hpf5 and "/></config:config-item>" not in hpf5,
+          "self-closing 태그 뒤에 잘못된 닫는 태그가 붙지 않는다", meta5[:200])
+    check("홍길동" not in hpf5 and "김민수" not in hpf5 and "2026-11-20" not in hpf5,
+          "self-closing 문서의 메타데이터 값도 모두 비워진다", meta5[:200])
+    check("<opf:title/>" in hpf5 and "<opf:language>ko</opf:language>" in hpf5,
+          "self-closing 제목 태그와 언어(ko)는 그대로 유지한다", meta5[:160])
+    t5 = section_text(m5)
+    check("010-8990-0543" not in t5 and "010-****-0543" in t5, "self-closing 문서도 본문 마스킹이 정상 동작한다")
+    info5 = rhwp_info(out5)
+    check(info5 is not None and info5.get("format") == "hwpx" and info5.get("paraCount") ==
+          (rhwp_info(SAMPLE) or {}).get("paraCount"),
+          "self-closing 문서 산출물도 rhwp 가 HWPX 로 인식한다(문단 수 동일)",
+          str(info5 and {k: info5.get(k) for k in ("format", "paraCount")}))
+    pdf5 = os.path.join(SHOTS, "self-closing-masked.pdf")
+    r5 = subprocess.run(["rhwp", "export-pdf", out5, "-o", pdf5, "--font-path", "/usr/share/fonts/pickle-hwp", "--json"],
+                        capture_output=True, text=True)
+    check(r5.returncode == 0 and os.path.getsize(pdf5) > 10000,
+          "self-closing 문서 산출물 PDF 렌더 성공(한글이 열 수 있는 파일)", r5.stderr[:80])
 
     prv = m1.get("Preview/PrvText.txt", b"").decode("utf-8", "ignore")
     check("700223-1234567" not in prv and "010-8990-0543" not in prv,

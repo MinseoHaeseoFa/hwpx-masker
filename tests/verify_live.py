@@ -14,6 +14,7 @@
 """
 import os
 import sys
+import xml.etree.ElementTree as ET
 import zipfile
 from urllib.parse import urlparse
 
@@ -78,6 +79,29 @@ def main():
         page.screenshot(path=os.path.join(SHOTS, "live-1280-02-전후비교.png"), full_page=True)
 
         page.click('.view-seg .seg-btn[data-view="masked"]')
+
+        # 메타데이터 self-closing 회귀 (라이브)
+        ns = ('xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf/"')
+        hpf_mixed = ('<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>'
+                     f'<opf:package {ns} version="1.4"><opf:metadata><opf:title/><opf:language>ko</opf:language>'
+                     '<opf:meta name="creator" content="text">홍길동</opf:meta>'
+                     '<opf:meta name="subject" content="text"/>'
+                     '<opf:meta name="CreatedDate" content="text">2026</opf:meta>'
+                     '<opf:meta name="keyword" content="text"/></opf:metadata></opf:package>')
+        r = page.evaluate("([n, x]) => window.Masker.sanitizeMetadataText(n, x)",
+                          ["Contents/content.hpf", hpf_mixed])
+        try:
+            ET.fromstring(r["xml"])
+            ok_live, err_live = True, ""
+        except ET.ParseError as e:
+            ok_live, err_live = False, str(e)
+        check(ok_live, "라이브: self-closing 메타데이터가 섞여도 content.hpf 파싱 성공", err_live)
+        check('<opf:meta name="subject" content="text"/>' in r["xml"]
+              and '<opf:meta name="keyword" content="text"/>' in r["xml"],
+              "라이브: self-closing 메타데이터가 손상 없이 유지", r["xml"][:200])
+        check("홍길동" not in r["xml"] and r["changed"] == 2,
+              f"라이브: 값이 있는 메타데이터만 비운다 (changed={r['changed']})", str(r["changed"]))
+
         page.fill("#addInput", "감사")
         page.click("#addForm button[type=submit]")
         page.wait_for_timeout(400)
@@ -123,6 +147,18 @@ def main():
           "라이브 다운로드본에 원본 개인정보 없음")
     check("700223-1******" in text and "010-****-0543" in text, "라이브 다운로드본에 마스킹 결과 있음")
     check(z.infolist()[0].filename == "mimetype", "라이브 다운로드본 mimetype 첫 엔트리")
+    bad = []
+    for n in z.namelist():
+        if n.endswith((".xml", ".hpf", ".rdf")):
+            try:
+                ET.fromstring(z.read(n).decode("utf-8"))
+            except ET.ParseError as e:
+                bad.append(f"{n}: {e}")
+    check(not bad, "라이브 다운로드본 XML·HPF·RDF 파트 모두 정상 파싱(태그 불일치 0건)", "; ".join(bad[:3]))
+    hpf = z.read("Contents/content.hpf").decode("utf-8")
+    check("</opf:meta></opf:meta>" not in hpf and "/></opf:meta>" not in hpf,
+          "라이브 다운로드본 content.hpf 에 잘못된 닫는 태그 없음",
+          hpf[hpf.find("<opf:metadata>"):][:200])
 
     print(f"\n=== 라이브 결과: {len(logs) - len(fails)} / {len(logs)} 통과 ===")
     if fails:
