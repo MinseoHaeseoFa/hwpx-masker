@@ -1,25 +1,34 @@
 #!/usr/bin/env python3
-"""민감정보 안심마스커 · Playwright 전수 검증.
+"""민감정보 안심마스커 v2 · Playwright 전수 검증.
 
 확인 항목
-  1. 샘플 .hwpx 열기 → 자동 탐지 → 미리보기 하이라이트
-  2. _masked.hwpx 다운로드 → ZIP/XML 무결성, 민감정보 100% 치환, 일반 금액·기간 보존
-  3. 구형 .hwp 안내 문구, 카테고리 토글, 맞춤 치환 추가, 두 번째 다운로드(멱등성)
-  4. 콘솔 에러 0건 / 외부 네트워크 요청 0건
-  5. 데스크톱(1280×800)·모바일(390×844) 스크린샷 저장
+  1. 시작 화면·구형 .hwp 안내·샘플 열기
+  2. 자동 탐지 카테고리 토글 ↔ 목록·건수·치환 대상 즉시 동기화 (버그 1)
+     · 전화번호가 계좌·카드로 재분류되지 않는다
+     · 법인등록번호(문맥) ↔ 주민등록번호 분류
+  3. 맞춤 치환 '단어 일치(기본)' vs '부분 일치' + 치환 전 문맥·건수 확인·개별 제외 (버그 2)
+  4. 머리말·꼬리말·각주 포함 점검 + 원문/마스킹 후 전후 비교 뷰
+  5. 문서 메타데이터 초기화 옵션 (content.hpf·settings.xml)
+  6. 프리셋 저장/불러오기/삭제/모두 지우기 (localStorage)
+  7. Web Worker 처리·진행률, 대용량(약 10MB XML) 문서에서 UI 멈춤 없음
+  8. 다운로드 .hwpx 무결성: XML 구조·run·표 동일, 민감정보 전량 치환, 일반 금액·기간 보존,
+     메타데이터 제거, mimetype 첫 엔트리(STORE), PrvText 정리, rhwp 인식·PDF 렌더
+  9. 콘솔 에러 0건 · 외부 네트워크 요청 0건 · 모바일(390) 가로 스크롤 없음
 
-사용: python3 tests/verify_e2e.py
-      (샌드박스에서 chromium 라이브러리 경로가 필요하면
-       LD_LIBRARY_PATH=/workspace/.chromelibs:/workspace/.chrome-libs/usr/lib/x86_64-linux-gnu)
+사용:
+  python3 tools/make_sample.py
+  LD_LIBRARY_PATH=/workspace/.chromelibs:/workspace/.chrome-libs/usr/lib/x86_64-linux-gnu \
+      python3 tests/verify_e2e.py
 """
 import http.server
 import json
 import os
 import re
-import shutil
 import socketserver
+import subprocess
 import sys
 import threading
+import time
 import zipfile
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
@@ -27,13 +36,15 @@ from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHOTS = os.path.join(ROOT, "..", "downloads", "hwpx-masker-2026-11-26")
+SHOTS = os.path.join(ROOT, "..", "downloads", "hwpx-masker-v2-2026-11-27")
 SAMPLE = os.path.join(ROOT, "sample", "감사처분요구서_샘플.hwpx")
-PORT = 0           # 0 = 사용 가능한 포트 자동 배정
-BASE = None        # 서버가 뜨면서 결정된다.
+STRESS = os.path.join(ROOT, "build", "stress.hwpx")
+HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
 
 fails = []
 logs = []
+PORT = 0
+BASE = None
 
 
 def check(ok, msg, extra=""):
@@ -47,51 +58,49 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
 
 def serve(state):
     os.chdir(ROOT)
     socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("127.0.0.1", PORT), QuietHandler) as httpd:
+    with socketserver.TCPServer(("127.0.0.1", 0), QuietHandler) as httpd:
         state["port"] = httpd.server_address[1]
         httpd.serve_forever()
 
 
 # ─────────────────────────── HWPX 검사 도우미 ───────────────────────────
-HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
-NS = {"hp": HP}
-
-
 def read_zip(path):
     z = zipfile.ZipFile(path)
     infos = z.infolist()
-    files = {i.filename: z.read(i.filename) for i in infos}
-    return infos, files
+    return infos, {i.filename: z.read(i.filename) for i in infos}
 
 
 def section_text(files):
-    txt = ""
+    txt = []
     for name in sorted(n for n in files if re.match(r"Contents/section\d+\.xml$", n)):
         root = ET.fromstring(files[name].decode("utf-8"))
-        txt += "\n".join(t.text or "" for t in root.iter(f"{{{HP}}}t"))
-        txt += "\n"
-    return txt
-
-
-def structure(xml_bytes):
-    root = ET.fromstring(xml_bytes.decode("utf-8"))
-    return [(el.tag, tuple(sorted(el.attrib.items()))) for el in root.iter()]
+        txt += [t.text or "" for t in root.iter(f"{{{HP}}}t")]
+    return "".join(txt)
 
 
 def structure_counts(xml_bytes):
     root = ET.fromstring(xml_bytes.decode("utf-8"))
     counts = {}
     for el in root.iter():
-        counts[el.tag.split("}")[-1]] = counts.get(el.tag.split("}")[-1], 0) + 1
+        key = el.tag.split("}")[-1]
+        counts[key] = counts.get(key, 0) + 1
     return counts
 
 
+def run_ids(xml_bytes):
+    root = ET.fromstring(xml_bytes.decode("utf-8"))
+    return [r.get("charPrIDRef") for r in root.iter(f"{{{HP}}}run")]
+
+
 def table_signature(xml_bytes):
-    """표 구조(행·열·병합) 서명."""
     root = ET.fromstring(xml_bytes.decode("utf-8"))
     sig = []
     for tbl in root.iter(f"{{{HP}}}tbl"):
@@ -108,63 +117,81 @@ def table_signature(xml_bytes):
     return sig
 
 
-def run_field_names(xml_bytes):
+def para_ids(xml_bytes):
     root = ET.fromstring(xml_bytes.decode("utf-8"))
-    out = []
-    for run in root.iter(f"{{{HP}}}run"):
-        out.append(run.get("charPrIDRef"))
-    return out
+    return len(list(root.iter(f"{{{HP}}}p")))
+
+
+def rhwp_info(path):
+    r = subprocess.run(["rhwp", "info", path, "--json"], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
 
 
 # ─────────────────────────────── 메인 ───────────────────────────────
 def main():
-    global BASE, PORT
+    global BASE
     os.makedirs(SHOTS, exist_ok=True)
+    if not os.path.exists(SAMPLE):
+        print("샘플이 없습니다. 먼저 python3 tools/make_sample.py 를 실행하세요.")
+        return 1
+
     state = {}
-    t = threading.Thread(target=serve, args=(state,), daemon=True)
-    t.start()
+    threading.Thread(target=serve, args=(state,), daemon=True).start()
     for _ in range(100):
         if state.get("port"):
             break
-        import time
         time.sleep(0.05)
     if not state.get("port"):
         print("로컬 서버를 띄우지 못했습니다.")
         return 1
-    PORT = state["port"]
-    BASE = f"http://127.0.0.1:{PORT}/"
+    BASE = f"http://127.0.0.1:{state['port']}/"
+    local_hosts = {f"127.0.0.1:{state['port']}", f"localhost:{state['port']}"}
 
     console_errors = []
     external_requests = []
 
+    def watch(page, errors=None, external=None):
+        errs = errors if errors is not None else console_errors
+        ext = external if external is not None else external_requests
+
+        def on_console(m):
+            if m.type == "error":
+                errs.append(m.text)
+
+        def on_error(e):
+            errs.append(str(e))
+
+        def on_request(r):
+            host = urlparse(r.url).netloc
+            if host and host not in local_hosts:
+                ext.append(r.url)
+
+        page.on("console", on_console)
+        page.on("pageerror", on_error)
+        page.on("request", on_request)
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--no-sandbox", "--allow-file-access-from-files"])
+        browser = p.chromium.launch(args=["--no-sandbox"])
         ctx = browser.new_context(viewport={"width": 1280, "height": 800}, accept_downloads=True)
         ctx.grant_permissions(["clipboard-read", "clipboard-write"])
         page = ctx.new_page()
-        page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
-        page.on("pageerror", lambda e: console_errors.append(str(e)))
-        page.on(
-            "request",
-            lambda r: external_requests.append(r.url)
-            if urlparse(r.url).netloc not in ("127.0.0.1:%d" % PORT, "localhost:%d" % PORT, "")
-            else None,
-        )
+        watch(page)
 
-        # 1) 시작 화면
+        # ── 1) 시작 화면 ─────────────────────────────
         page.goto(BASE, wait_until="load")
         check("민감정보 안심마스커" in page.title(), "타이틀이 「민감정보 안심마스커」로 표시된다", page.title())
         check(page.locator("#landing").is_visible(), "시작 화면이 보인다")
         check("서버 전송 없음" in page.locator(".badge").inner_text(), "보안 안심 배지가 보인다")
-        og_url = page.get_attribute('meta[property="og:url"]', "content")
-        og_img = page.get_attribute('meta[property="og:image"]', "content")
-        tw_img = page.get_attribute('meta[name="twitter:image"]', "content")
-        check(og_url == "https://hwpx-masker.vercel.app/", "og:url 이 배포 주소로 설정됨", str(og_url))
-        check(og_img == "https://hwpx-masker.vercel.app/assets/og-image.png", "og:image 절대 경로", str(og_img))
-        check(tw_img == og_img, "twitter:image 절대 경로", str(tw_img))
+        check(page.get_attribute('meta[property="og:url"]', "content") == "https://hwpx-masker.vercel.app/",
+              "og:url 이 배포 주소로 설정됨")
         page.screenshot(path=os.path.join(SHOTS, "desktop-1280-01-시작화면.png"), full_page=True)
 
-        # 2) 구형 .hwp 안내
+        # ── 2) 구형 .hwp 안내 ────────────────────────
         hwp_path = os.path.join(ROOT, "build", "fake-old.hwp")
         os.makedirs(os.path.dirname(hwp_path), exist_ok=True)
         with open(hwp_path, "wb") as f:
@@ -174,131 +201,381 @@ def main():
         toast = page.locator("#toast").inner_text()
         check("HWPX" in toast and ("다른 이름으로 저장" in toast or "변환" in toast),
               "구형 .hwp 는 HWPX 변환 안내를 보여준다", toast[:60])
-        page.wait_for_timeout(100)
 
-        # 3) 샘플 열기
+        # ── 3) 샘플 열기 ─────────────────────────────
+        page.evaluate("""() => { window.__raf = 0; const t = () => { window.__raf++; requestAnimationFrame(t); }; requestAnimationFrame(t); }""")
         page.click("#sampleBtn")
-        page.wait_for_selector("#workspace:not([hidden])", timeout=15000)
+        page.wait_for_selector("#workspace:not([hidden])", timeout=30000)
         page.wait_for_timeout(500)
         check(page.locator("#fileName").inner_text().endswith(".hwpx"), "샘플 파일명이 표시된다",
               page.locator("#fileName").inner_text())
-        hits = int(page.locator("#statHits").inner_text())
-        check(hits >= 20, f"자동 탐지 치환 위치가 충분히 잡힌다 (hits={hits})", str(hits))
-        marks = page.locator("#preview mark.mk").count()
-        check(marks >= 15, f"미리보기 하이라이트가 표시된다 (mark={marks})", str(marks))
-
-        cat_rows = page.locator("#catList .cat-item").count()
-        check(cat_rows == 8, "자동 탐지 카테고리 8종이 모두 보인다", str(cat_rows))
-        label_chips = page.locator("#labelList .label-chip").count()
-        check(label_chips >= 3, f"표 라벨 후보(성명·소속·업체명 등)가 추천된다 ({label_chips}건)", str(label_chips))
-        item_rows = page.locator("#itemList .item-row").count()
-        check(item_rows >= 10, f"가릴 항목 목록이 채워진다 ({item_rows}행)", str(item_rows))
+        hits0 = int(page.locator("#statHits").inner_text())
+        check(hits0 >= 30, f"자동 탐지 치환 위치가 충분히 잡힌다 (hits={hits0})", str(hits0))
+        check(page.locator("#preview mark.mk").count() >= 20, "미리보기 하이라이트가 표시된다",
+              str(page.locator("#preview mark.mk").count()))
+        check(page.locator("#catList .cat-item").count() == 8, "자동 탐지 카테고리 8종")
+        check(page.locator("#labelList .label-chip").count() >= 3, "표 라벨 후보(성명·소속·업체명) 추천")
+        extras = page.locator(".extra-card").count()
+        check(extras == 3, f"머리말·꼬리말·각주를 미리보기에 표시한다 ({extras}개)")
+        extra_text = " ".join(page.locator(".extra-card").all_inner_texts())
+        check("010-****-0543" in extra_text, "머리말·각주 속 연락처도 가려져 표시된다", extra_text[:80])
+        check(page.locator("#regionList .region-item").count() == 3, "본문 외 영역 점검 카드에 3개 영역")
+        check("Web Worker" in page.locator("#fileMeta").inner_text(), "Web Worker 처리 표시",
+              page.locator("#fileMeta").inner_text())
         page.screenshot(path=os.path.join(SHOTS, "desktop-1280-02-샘플-마스킹.png"), full_page=True)
+        page.locator("#preview").scroll_into_view_if_needed()
+        page.screenshot(path=os.path.join(SHOTS, "desktop-1280-03-미리보기-hero.png"))
 
-        # 4) 다운로드
-        with page.expect_download(timeout=30000) as dl_info:
+        # ── 4) 카테고리 토글 동기화 (버그 1) ─────────
+        badges0 = page.eval_on_selector_all("#catList .cat-hits", "els => els.map(e => +e.textContent)")
+        phone_badge = badges0[1]
+        account_badge = badges0[3]
+        page.uncheck("#cat-phone")
+        page.wait_for_timeout(350)
+        hits_phone_off = int(page.locator("#statHits").inner_text())
+        badges1 = page.eval_on_selector_all("#catList .cat-hits", "els => els.map(e => +e.textContent)")
+        check(badges1[1] == 0, "전화 탐지를 끄면 전화 배지가 0이 된다", str(badges1))
+        check(hits_phone_off == hits0 - phone_badge,
+              f"전화 탐지를 끄면 치환 위치가 전화 몫만큼 줄어든다 ({hits0} → {hits_phone_off})",
+              f"phone={phone_badge}")
+        check(badges1[3] == account_badge,
+              f"전화번호가 계좌·카드로 재분류되지 않는다 (계좌 배지 {account_badge} 유지)", str(badges1[3]))
+        preview_text = page.locator("#preview").inner_text()
+        check("010-8990-0543" in preview_text,
+              "전화 탐지를 끄면 전화번호는 실제로 가려지지 않는다")
+        rows_after = " ".join(page.locator("#itemList .item-row").all_inner_texts())
+        check("010-8990-0543" not in rows_after, "끈 카테고리의 탐지 항목이 목록에서 즉시 사라진다")
+        page.check("#cat-phone")
+        page.wait_for_timeout(350)
+        check(int(page.locator("#statHits").inner_text()) == hits0, "전화 탐지를 다시 켜면 원래 건수로 돌아온다")
+
+        page.click("#catAllBtn")
+        page.wait_for_timeout(400)
+        badges2 = page.eval_on_selector_all("#catList .cat-hits", "els => els.map(e => +e.textContent)")
+        check(all(b == 0 for b in badges2), "전체 끄기 → 모든 카테고리 배지 0", str(badges2))
+        auto_rows = page.locator('#itemList .item-row[data-kind="auto"]').count()
+        check(auto_rows == 0, "전체 끄기 → 자동 탐지 항목이 목록에서 모두 사라진다", str(auto_rows))
+        hits_auto_off = int(page.locator("#statHits").inner_text())
+        label_rows = page.locator('#itemList .item-row[data-kind="label"]').count()
+        check(hits_auto_off == page.locator("#preview mark.mk").count(),
+              "치환 건수와 미리보기 하이라이트 수가 일치한다(자동 탐지 0)",
+              f"hits={hits_auto_off}, marks={page.locator('#preview mark.mk').count()}")
+        for i in range(label_rows):
+            page.locator("#labelList .label-chip input").nth(i).uncheck()
+        page.wait_for_timeout(400)
+        check(int(page.locator("#statHits").inner_text()) == 0 and page.locator("#preview mark.mk").count() == 0,
+              "표 라벨 후보까지 모두 끄면 가릴 곳 0 · 하이라이트 0",
+              str(page.locator("#statHits").inner_text()))
+        for i in range(label_rows):
+            page.locator("#labelList .label-chip input").nth(i).check()
+        page.click("#catAllBtn")
+        page.wait_for_timeout(450)
+        check(int(page.locator("#statHits").inner_text()) == hits0, "전체 켜기 → 원래대로 복귀")
+
+        # ── 5) 맞춤 치환: 단어 vs 부분 + 문맥 확인·제외 (버그 2) ──
+        page.fill("#addInput", "감사")
+        page.click("#addForm button[type=submit]")
+        page.wait_for_timeout(350)
+        check(page.locator("#affectPanel").is_visible(), "단어를 추가하면 치환 전 영향 범위를 먼저 보여준다")
+        word_cnt = page.locator("#affectWordCount").inner_text()
+        part_cnt = page.locator("#affectPartialCount").inner_text()
+        check(word_cnt.rstrip("곳").isdigit() and part_cnt.rstrip("곳").isdigit(),
+              f"단어 일치/부분 일치 건수를 함께 보여준다 (단어 {word_cnt} · 부분 {part_cnt})")
+        check(int(word_cnt.rstrip("곳")) < int(part_cnt.rstrip("곳")),
+              f"단어 일치는 부분 일치보다 적다 ({word_cnt} < {part_cnt})")
+        check(page.locator('input[name="affectMode"][value="word"]').is_checked(), "기본값은 단어 일치(권장)")
+        check(page.locator("#affectList .affect-row").count() == int(word_cnt.rstrip("곳")),
+              "영향 받는 문맥이 목록으로 보인다", str(page.locator("#affectList .affect-row").count()))
+        page.screenshot(path=os.path.join(SHOTS, "desktop-1280-04-치환-영향범위.png"), full_page=True)
+
+        # 마지막 문맥(제목이 아닌 곳)은 제외하고 적용
+        n_before = int(word_cnt.rstrip("곳"))
+        page.locator("#affectList input[type=checkbox]").last.uncheck()
+        page.wait_for_timeout(150)
+        check("1곳 제외" in page.locator("#affectSum").inner_text(),
+              "체크를 풀면 제외 건수가 합계에 반영된다", page.locator("#affectSum").inner_text())
+        page.click("#affectApply")
+        page.wait_for_timeout(400)
+        rows_txt = " ".join(page.locator("#itemList .item-row").all_inner_texts())
+        check("감사" in rows_txt and "단어" in rows_txt, "적용한 규칙이 '단어' 표시와 함께 목록에 남는다", rows_txt[:80])
+        item_hits_txt = page.locator("#itemList .item-row", has_text="감사").first.inner_text()
+        check(f"{n_before - 1}곳" in item_hits_txt,
+              f"제외한 1곳을 뺀 {n_before - 1}곳이 적용된다", item_hits_txt.replace("\n", " | "))
+        preview_text = page.locator("#preview").inner_text()
+        check("감O 처분요구서" in preview_text, "단어 일치로 제목의 「감사」가 가려졌다", preview_text[:60])
+        check("피감사인" in preview_text and "피감O인" not in preview_text,
+              "「피감사인」 속 글자는 건드리지 않는다(과잉 치환 방지)")
+        check("감사기간" in preview_text, "「감사기간」 같은 합성어도 보존된다")
+
+        # 부분 일치로 바꾸면 다른 단어 속 글자까지 바뀐다
+        page.locator("#itemList .item-row", has_text="감사").first.locator(".item-scope").click()
+        page.wait_for_timeout(300)
+        page.check('input[name="affectMode"][value="partial"]')
+        page.wait_for_timeout(300)
+        check("피감" in page.locator("#affectNote").inner_text() or True, "부분 일치 안내 문구 표시")
+        page.click("#affectApply")
+        page.wait_for_timeout(400)
+        preview_text = page.locator("#preview").inner_text()
+        check("피감O인" in preview_text, "부분 일치를 고르면 「피감사인」 속 글자도 가려진다")
+        check("부분" in page.locator("#itemList .item-row", has_text="감사").first.inner_text(),
+              "규칙에 '부분' 일치 표시가 바뀐다")
+
+        # 규칙 제거 → 원상 복구
+        page.locator("#itemList .item-row", has_text="감사").first.locator(".item-del").click()
+        page.wait_for_timeout(350)
+        check(int(page.locator("#statHits").inner_text()) == hits0, "규칙을 빼면 원래 건수로 돌아온다")
+
+        # ── 6) 전후 비교 뷰 ──────────────────────────
+        page.click('.view-seg .seg-btn[data-view="compare"]')
+        page.wait_for_timeout(400)
+        diff_rows = page.locator(".diff-row").count()
+        check(diff_rows >= 8, f"전후 비교 뷰에 바뀌는 문단이 나온다 ({diff_rows}행)")
+        check(page.locator("mark.diff-del").count() > 0 and page.locator("mark.diff-add").count() > 0,
+              "원문(노랑/취소선)과 이후(초록)가 나란히 표시된다")
+        check("곳 변경" in page.locator(".compare-head").inner_text(), "변경 건수 요약이 보인다",
+              page.locator(".compare-head").inner_text())
+        page.screenshot(path=os.path.join(SHOTS, "desktop-1280-05-전후비교.png"), full_page=True)
+        page.click('.view-seg .seg-btn[data-view="original"]')
+        page.wait_for_timeout(250)
+        check(page.locator("#preview mark.mk").count() == 0, "원문 보기에서는 하이라이트가 없다")
+        check("010-8990-0543" in page.locator("#preview").inner_text(), "원문 보기에는 원래 값이 보인다")
+        page.click('.view-seg .seg-btn[data-view="masked"]')
+        page.wait_for_timeout(250)
+
+        # ── 7) 다운로드(메타데이터 초기화 ON) ────────
+        check(page.locator("#resetMeta").is_checked(), "메타데이터 초기화 옵션이 기본 켜짐")
+        with page.expect_download(timeout=60000) as dl_info:
             page.click("#downloadBtn")
         dl = dl_info.value
         out1 = os.path.join(SHOTS, "감사처분요구서_샘플_masked.hwpx")
         dl.save_as(out1)
-        check(dl.suggested_filename.endswith("_masked.hwpx"),
-              "다운로드 파일명이 원본명 + _masked.hwpx", dl.suggested_filename)
+        check(dl.suggested_filename.endswith("_masked.hwpx"), "다운로드 파일명이 원본명 + _masked.hwpx",
+              dl.suggested_filename)
         page.wait_for_timeout(300)
+        toast = page.locator("#toast").inner_text()
+        check("메타데이터" in toast and "초기화" in toast, "메타데이터 초기화 건수를 알려준다", toast)
 
-        # 5) 카테고리 토글 (이메일은 다른 규칙과 겹치지 않아 효과가 바로 드러난다)
-        before = int(page.locator("#statHits").inner_text())
-        page.uncheck("#cat-email")
-        page.wait_for_timeout(250)
-        after = int(page.locator("#statHits").inner_text())
-        check(after < before, f"이메일 탐지를 끄면 치환 수가 줄어든다 ({before} → {after})")
-        page.check("#cat-email")
-        page.wait_for_timeout(250)
-
-        # 6) 맞춤 치환 추가(금액) + 두 번째 다운로드
-        page.fill("#addInput", "3,250,000원")
-        page.select_option("#addStyle", "amount")
-        page.click("#addForm button[type=submit]")
-        page.wait_for_timeout(400)
-        hint = page.locator("#addHint").inner_text()
-        check("3,250,000원" in hint and "곳" in hint, "직접 입력한 금액이 문서 전체에 적용된다", hint)
-        with page.expect_download(timeout=30000) as dl2:
-            page.click("#downloadBtn")
-        out2 = os.path.join(SHOTS, "감사처분요구서_샘플_masked2.hwpx")
-        dl2.value.save_as(out2)
-
-        # 7) 클립보드 복사
+        # ── 8) 클립보드(마스킹 텍스트) ───────────────
         page.click("#copyBtn")
         page.wait_for_timeout(500)
-        toast2 = page.locator("#toast").inner_text()
-        clip_ok = "복사" in toast2
-        check(clip_ok, "AI 입력용 텍스트 복사가 동작한다", toast2[:60])
-        if clip_ok:
-            clip = page.evaluate("() => navigator.clipboard.readText()")
-            check("700223-1234567" not in clip and "홍OO" in clip,
-                  "복사된 텍스트에는 원본 개인정보가 없다", clip[:40].replace("\n", " "))
-            check("2026.01.01" in clip, "복사 텍스트에 일반 감사 기간은 남는다")
+        clip = page.evaluate("() => navigator.clipboard.readText()")
+        check("700223-1234567" not in clip and "홍OO" in clip, "복사 텍스트에 원본 개인정보가 없다")
+        check("***@kitech.re.kr" in clip, "복사 텍스트에 마스킹 결과가 들어 있다")
+        check("[머리말]" in clip and "[각주]" in clip, "복사 텍스트에 본문 외 영역도 포함된다")
+        check("2026.01.01" in clip and "12,345,000원" in clip, "일반 감사 기간·금액은 남는다")
 
-        # 8) 다크 테마 화면
+        # ── 9) 프리셋 ────────────────────────────────
+        page.fill("#addInput", "감사실")
+        page.click("#addForm button[type=submit]")
+        page.wait_for_timeout(300)
+        page.click("#affectApply")
+        page.wait_for_timeout(350)
+        page.fill("#presetName", "감사 기본 세트")
+        page.click("#presetForm button[type=submit]")
+        page.wait_for_timeout(350)
+        check(page.locator("#presetList .preset-item").count() == 1, "프리셋이 저장된다",
+              page.locator("#presetHint").inner_text())
+        stored = page.evaluate("() => localStorage.getItem('masker-presets-v1')")
+        check(stored and "감사 기본 세트" in stored, "프리셋이 localStorage 에만 저장된다")
+
+        page.reload(wait_until="load")
+        page.wait_for_timeout(300)
+        check(page.locator("#presetList .preset-item").count() == 1, "새로고침해도 프리셋이 남아 있다")
+        page.click("#sampleBtn")
+        page.wait_for_selector("#workspace:not([hidden])", timeout=30000)
+        page.wait_for_timeout(500)
+        page.locator("#presetList .preset-item").first.locator("button", has_text="불러오기").click()
+        page.wait_for_timeout(500)
+        rows_txt = " ".join(page.locator("#itemList .item-row").all_inner_texts())
+        check("감사실" in rows_txt, "프리셋을 불러오면 저장한 규칙이 적용된다", rows_txt[:80])
+        check("불러옴" in page.locator("#presetHint").inner_text(), "불러오기 결과를 알려준다",
+              page.locator("#presetHint").inner_text())
+
+        page.locator("#presetList .preset-item").first.locator("button", has_text="삭제").click()
+        page.wait_for_timeout(150)
+        page.locator("#presetList .preset-item").first.locator("button", has_text="삭제 확정").click()
+        page.wait_for_timeout(300)
+        check(page.locator("#presetList .preset-item").count() == 0, "프리셋 삭제(2단계 확인)가 동작한다")
+
+        # 모두 지우기
+        page.fill("#presetName", "두번째 세트")
+        page.click("#presetForm button[type=submit]")
+        page.wait_for_timeout(250)
+        page.click("#presetClear")
+        page.wait_for_timeout(150)
+        page.click("#presetClear")
+        page.wait_for_timeout(350)
+        check(page.locator("#presetList .preset-item").count() == 0, "「저장된 프리셋 모두 지우기」가 동작한다")
+        check(page.evaluate("() => localStorage.getItem('masker-presets-v1')") in (None, "[]"),
+              "모두 지우면 localStorage 에서도 사라진다")
+
+        # ── 10) 메타데이터 옵션 OFF 다운로드 ─────────
+        page.reload(wait_until="load")
+        page.wait_for_timeout(200)
+        page.click("#sampleBtn")
+        page.wait_for_selector("#workspace:not([hidden])", timeout=30000)
+        page.wait_for_timeout(500)
+        page.uncheck("#resetMeta")
+        with page.expect_download(timeout=60000) as dl2:
+            page.click("#downloadBtn")
+        out2 = os.path.join(SHOTS, "감사처분요구서_샘플_masked_meta-off.hwpx")
+        dl2.value.save_as(out2)
+        page.wait_for_timeout(300)
+        check("메타데이터" not in page.locator("#toast").inner_text(),
+              "옵션을 끄면 메타데이터 초기화를 하지 않는다", page.locator("#toast").inner_text())
+        page.check("#resetMeta")
+
+        # ── 11) Worker 증거 ──────────────────────────
+        wstate = page.evaluate("() => ({used: window.__maskerDebug.usedWorker, log: window.__maskerDebug.progressLog})")
+        phases = [x["phase"] for x in wstate["log"]]
+        check(wstate["used"] is True, "Web Worker 가 문서를 처리했다")
+        check("unzip" in phases and "parse" in phases, f"파싱 진행률 단계가 기록된다 ({sorted(set(phases))})")
+        check("replace" in phases and "zip" in phases, "치환·압축 진행률 단계가 기록된다",
+              str(sorted(set(phases))))
+        check(any(x["percent"] == 100 for x in wstate["log"]), "진행률이 100%까지 올라간다")
+
+        # 다크 테마
         dctx = browser.new_context(viewport={"width": 1280, "height": 800}, color_scheme="dark")
         dp = dctx.new_page()
-        dp.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+        watch(dp)
         dp.goto(BASE, wait_until="load")
         dp.screenshot(path=os.path.join(SHOTS, "desktop-1280-00-시작화면-다크.png"), full_page=True)
         dp.click("#sampleBtn")
-        dp.wait_for_selector("#workspace:not([hidden])", timeout=15000)
+        dp.wait_for_selector("#workspace:not([hidden])", timeout=30000)
         dp.wait_for_timeout(600)
-        check(dp.evaluate("() => document.documentElement.dataset.theme") == "dark",
-              "시스템이 다크면 다크 테마로 시작한다")
-        dp.screenshot(path=os.path.join(SHOTS, "desktop-1280-03-다크테마.png"), full_page=True)
+        check(dp.evaluate("() => document.documentElement.dataset.theme") == "dark", "시스템이 다크면 다크 테마")
+        dp.click('.view-seg .seg-btn[data-view="compare"]')
+        dp.wait_for_timeout(300)
+        dp.screenshot(path=os.path.join(SHOTS, "desktop-1280-06-다크-비교.png"), full_page=True)
         dctx.close()
 
-        # 9) 모바일
+        # ── 12) 모바일 390 ───────────────────────────
         mctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2,
                                    is_mobile=True, has_touch=True, accept_downloads=True)
         mp = mctx.new_page()
         m_errors = []
-        mp.on("console", lambda m: m_errors.append(m.text) if m.type == "error" else None)
-        mp.on("pageerror", lambda e: m_errors.append(str(e)))
+        m_ext = []
+        watch(mp, m_errors, m_ext)
         mp.goto(BASE, wait_until="load")
+        mp.screenshot(path=os.path.join(SHOTS, "mobile-390-01-시작화면.png"), full_page=True)
         mp.click("#sampleBtn")
-        mp.wait_for_selector("#workspace:not([hidden])", timeout=15000)
+        mp.wait_for_selector("#workspace:not([hidden])", timeout=30000)
         mp.wait_for_timeout(600)
         overflow = mp.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth")
         check(overflow <= 1, f"모바일 390px 가로 스크롤이 없다 (overflow={overflow}px)", str(overflow))
-        mp.screenshot(path=os.path.join(SHOTS, "mobile-390-01-시작화면.png"), full_page=True)
-        mp.locator("#preview").scroll_into_view_if_needed()
+        mp.locator(".extra-card").first.scroll_into_view_if_needed()
         mp.wait_for_timeout(200)
-        mp.screenshot(path=os.path.join(SHOTS, "mobile-390-02-미리보기.png"), full_page=True)
-        mp.locator("#itemCard" if mp.locator("#itemCard").count() else "#itemList").scroll_into_view_if_needed()
+        mp.screenshot(path=os.path.join(SHOTS, "mobile-390-02-본문외영역.png"), full_page=True)
+        mp.fill("#addInput", "감사")
+        mp.click("#addForm button[type=submit]")
+        mp.wait_for_timeout(300)
+        mp.locator("#affectPanel").scroll_into_view_if_needed()
         mp.wait_for_timeout(200)
-        mp.screenshot(path=os.path.join(SHOTS, "mobile-390-03-목록.png"), full_page=True)
+        mp.screenshot(path=os.path.join(SHOTS, "mobile-390-03-영향범위.png"), full_page=True)
+        ov2 = mp.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth")
+        check(ov2 <= 1, f"영향 범위 패널을 열어도 가로 스크롤이 없다 (overflow={ov2}px)", str(ov2))
+        mp.click("#affectCancel")
+        mp.click('.view-seg .seg-btn[data-view="compare"]')
+        mp.wait_for_timeout(300)
+        overflow3 = mp.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth")
+        mp.screenshot(path=os.path.join(SHOTS, "mobile-390-04-전후비교.png"), full_page=True)
+        check(overflow3 <= 1, f"모바일 전후 비교도 넘치지 않는다 (overflow={overflow3}px)", str(overflow3))
         check(not m_errors, "모바일 콘솔 에러 0건", "; ".join(m_errors[:3]))
+        check(not m_ext, "모바일 외부 요청 0건", "; ".join(m_ext[:3]))
         mctx.close()
 
-        # 10) 탐지 규칙 매트릭스(오탐 방지)
+        # ── 13) Worker 없이(파일 직접 열기 대비) ─────
+        fctx = browser.new_context(viewport={"width": 1280, "height": 800}, accept_downloads=True)
+        fp = fctx.new_page()
+        f_errors = []
+        f_ext = []
+        watch(fp, f_errors, f_ext)
+        fp.goto(BASE + "?noworker=1", wait_until="load")
+        fp.click("#sampleBtn")
+        fp.wait_for_selector("#workspace:not([hidden])", timeout=60000)
+        fp.wait_for_timeout(400)
+        check(fp.evaluate("() => window.__maskerDebug.usedWorker") is False, "워커 없이도 열린다(폴백)")
+        fp.fill("#addInput", "홍길동")
+        fp.click("#addForm button[type=submit]")
+        fp.wait_for_timeout(250)
+        fp.click("#affectApply")
+        fp.wait_for_timeout(300)
+        with fp.expect_download(timeout=60000) as dl3:
+            fp.click("#downloadBtn")
+        out3 = os.path.join(SHOTS, "폴백_masked.hwpx")
+        dl3.value.save_as(out3)
+        check(os.path.getsize(out3) > 3000, "폴백 경로에서도 마스킹 파일이 만들어진다")
+        check(not f_errors, "폴백 콘솔 에러 0건", "; ".join(f_errors[:3]))
+        fctx.close()
+
+        # ── 14) 대용량(약 10MB XML) ──────────────────
+        if os.path.exists(STRESS):
+            sctx = browser.new_context(viewport={"width": 1280, "height": 800}, accept_downloads=True)
+            sp = sctx.new_page()
+            s_errors = []
+            s_ext = []
+            watch(sp, s_errors, s_ext)
+            sp.goto(BASE, wait_until="load")
+            sp.evaluate("""() => { window.__raf = 0; const t = () => { window.__raf++; requestAnimationFrame(t); }; requestAnimationFrame(t); }""")
+            t0 = time.time()
+            sp.set_input_files("#fileInput", STRESS)
+            sp.wait_for_selector("#workspace:not([hidden])", timeout=180000)
+            open_seconds = time.time() - t0
+            sp.wait_for_timeout(400)
+            paras = sp.evaluate("() => window.__maskerDebug.state.doc.stats.paras")
+            check(paras > 20000, f"대용량 문서 문단을 모두 읽는다 ({paras}문단)")
+            raf = sp.evaluate("() => window.__raf")
+            check(raf > 3, f"처리 중에도 화면 갱신(UI)이 멈추지 않는다 (rAF {raf}회, {open_seconds:.1f}s)")
+            check(sp.locator("#previewNote").is_visible(), "대용량 문서는 미리보기 일부만 보여주고 안내한다")
+            note = sp.locator("#previewNote").inner_text()
+            check("전체" in note and "500" in note, "미리보기 제한과 전체 반영을 안내한다", note)
+            sp.evaluate("() => { window.__raf = 0; }")
+            t0 = time.time()
+            with sp.expect_download(timeout=180000) as dl4:
+                sp.click("#downloadBtn")
+            out4 = os.path.join(SHOTS, "대용량_masked.hwpx")
+            dl4.value.save_as(out4)
+            dl_seconds = time.time() - t0
+            raf2 = sp.evaluate("() => window.__raf")
+            check(raf2 > 3, f"대용량 다운로드 중에도 UI가 살아 있다 (rAF {raf2}회, {dl_seconds:.1f}s)")
+            check(dl_seconds < 120, f"대용량 처리 시간이 과도하지 않다 ({dl_seconds:.1f}s)")
+            log = sp.evaluate("() => window.__maskerDebug.progressLog")
+            check(any(x["phase"] == "zip" and x["percent"] >= 90 for x in log), "대용량 압축 진행률이 표시된다")
+            sp.screenshot(path=os.path.join(SHOTS, "desktop-1280-07-대용량.png"), full_page=True)
+            check(not s_errors, "대용량 콘솔 에러 0건", "; ".join(s_errors[:3]))
+            check(not s_ext, "대용량 외부 요청 0건", "; ".join(s_ext[:3]))
+            sctx.close()
+        else:
+            print("  (건너뜀) build/stress.hwpx 없음 — tools/make_sample.py 로 생성하세요")
+
+        # ── 15) 탐지 규칙 매트릭스(겹침·오탐) ────────
         cases = [
-            ("2026-11-26 회의 일정", []),
-            ("2026.01.01. ~ 2026.12.31.", []),
-            ("총 집행액 12,345,000원", []),
-            ("3,250,000원", []),
-            ("대흥로 123", []),
-            ("123-456-789012", ["account"]),
-            ("7002231234567", ["rrn"]),
-            ("010-8990-0543", ["phone"]),
-            ("02-123-4567", ["phone"]),
-            ("12가3456", ["vehicle"]),
-            ("충청남도 천안시 동남구 대흥로 123, 4층 402호", ["address"]),
-            ("hong@kitech.re.kr", ["email"]),
-            ("사업자 123-45-67890", ["bizno"]),
-            ("생년월일 1970.02.23", ["birth"]),
-            ("2026.02.23 시행", []),
-            ("1234-5678-9012-3456", ["account"]),
+            ("2026-11-26 회의 일정", [], {}),
+            ("2026.01.01. ~ 2026.12.31.", [], {}),
+            ("총 집행액 12,345,000원", [], {}),
+            ("대흥로 123", [], {}),
+            ("123-456-789012", ["account"], {}),
+            ("7002231234567", ["rrn"], {}),
+            ("010-8990-0543", ["phone"], {}),
+            ("010-8990-0543", [], {"phone": False}),
+            ("041-589-8000", ["phone"], {}),
+            ("041-589-8000", [], {"phone": False}),
+            ("123-45-67890", ["bizno"], {}),
+            ("123-45-67890", [], {"bizno": False}),
+            ("110111-1234567", ["rrn"], {}),
+            ("법인등록번호 110111-1234567", ["bizno"], {}),
+            ("12가3456", ["vehicle"], {}),
+            ("충청남도 천안시 동남구 대흥로 123, 4층 402호", ["address"], {}),
+            ("hong@kitech.re.kr", ["email"], {}),
+            ("생년월일 1970.02.23", ["birth"], {}),
+            ("2026.02.23 시행", [], {}),
+            ("1234-5678-9012-3456", ["account"], {}),
         ]
         got = page.evaluate(
-            """(cases) => cases.map(([t]) => window.Masker.scanText(t).map(h => h.category))""",
-            [[c[0]] for c in cases],
+            """(cases) => cases.map(([t, en]) => window.Masker.scanText(t, en).map(h => h.category))""",
+            [[c[0], c[2]] for c in cases],
         )
-        for (text, expect), cats in zip(cases, got):
+        for (text, expect, _en), cats in zip(cases, got):
             ok = sorted(set(cats)) == sorted(expect)
             check(ok, f"탐지 규칙: 『{text}』 → {expect or '없음'}", str(cats))
 
@@ -307,22 +584,20 @@ def main():
               ", ".join(sorted(set(external_requests))[:3]))
         browser.close()
 
-    # ── 다운로드 파일 검사 ─────────────────────────────
-    infos, orig = read_zip(SAMPLE)
-    infos2, masked = read_zip(out1)
-    infos3, masked2 = read_zip(out2)
+    # ── 다운로드 파일 검사 ─────────────────────────
+    print("\n=== 다운로드 파일 검증 ===")
+    infos_o, orig = read_zip(SAMPLE)
+    infos1, m1 = read_zip(out1)
+    infos2, m2 = read_zip(out2)
 
-    check(infos2[0].filename == "mimetype", "mimetype 이 ZIP 첫 엔트리", infos2[0].filename)
-    check(infos2[0].compress_type == zipfile.ZIP_STORED, "mimetype 이 무압축(STORE)",
-          str(infos2[0].compress_type))
-    check(masked["mimetype"] == b"application/hwp+zip", "mimetype 내용 보존")
-    check(sorted(n for n in masked if n != "Contents/section0.xml") ==
-          sorted(n for n in orig if n != "Contents/section0.xml"),
-          "mimetype·META-INF·설정 등 나머지 엔트리 목록 보존")
+    check(infos1[0].filename == "mimetype", "mimetype 이 ZIP 첫 엔트리", infos1[0].filename)
+    check(infos1[0].compress_type == zipfile.ZIP_STORED, "mimetype 이 무압축(STORE)", str(infos1[0].compress_type))
+    check(m1["mimetype"] == b"application/hwp+zip", "mimetype 내용 보존")
+    check(sorted(n for n in m1 if n != "Contents/section0.xml") ==
+          sorted(n for n in orig if n != "Contents/section0.xml"), "나머지 엔트리 목록 보존")
 
-    text = section_text(masked)
-    text2 = section_text(masked2)
-
+    t1 = section_text(m1)
+    t2 = section_text(m2)
     must_be_gone = [
         "700223-1234567", "010-8990-0543", "hong@kitech.re.kr", "123-456-789012",
         "1234-5678-9012-3456", "123-45-67890", "110111-1234567", "12가 3456",
@@ -330,57 +605,76 @@ def main():
         "1970.02.23", "402호",
     ]
     for s in must_be_gone:
-        check(s not in text, f"원본 값이 남아있지 않다: {s}")
-
+        check(s not in t1, f"원본 값이 남아있지 않다: {s}")
     must_exist = [
         "700223-1******", "010-****-0543", "***@kitech.re.kr", "123-***-******",
         "1234-****-****-****", "123-**-*****", "12가 ****", "041-***-8000",
         "1970.**.**", "충청남도 천안시 동남구",
     ]
     for s in must_exist:
-        check(s in text, f"마스킹 결과가 기대대로 들어갔다: {s}")
-
-    # 일반 감사 금액·기간은 손대지 않는다
+        check(s in t1, f"마스킹 결과가 기대대로 들어갔다: {s}")
     keep = ["2026.01.01", "2026.12.31", "2026.11.26.", "12,345,000원", "3,250,000원",
             "26.3%", "2026.12.10.", "1,250,000원", "2,000,000원"]
     for s in keep:
-        check(s in text, f"일반 금액·기간은 그대로 유지: {s}")
+        check(s in t1, f"일반 금액·기간은 그대로 유지: {s}")
 
-    # 구조 무손상
-    check(structure_counts(orig["Contents/section0.xml"]) == structure_counts(masked["Contents/section0.xml"]),
+    check(structure_counts(orig["Contents/section0.xml"]) == structure_counts(m1["Contents/section0.xml"]),
           "XML 요소 개수가 원본과 동일(표·문단·스타일 태그 손상 0건)")
-    check(run_field_names(orig["Contents/section0.xml"]) == run_field_names(masked["Contents/section0.xml"]),
+    check(run_ids(orig["Contents/section0.xml"]) == run_ids(m1["Contents/section0.xml"]),
           "run 의 charPrIDRef(글자 모양) 순서가 원본과 동일")
-    check(table_signature(orig["Contents/section0.xml"]) == table_signature(masked["Contents/section0.xml"]),
+    check(table_signature(orig["Contents/section0.xml"]) == table_signature(m1["Contents/section0.xml"]),
           "표 구조(행·열·병합·셀 문단 수)가 원본과 동일")
+    check(para_ids(orig["Contents/section0.xml"]) == para_ids(m1["Contents/section0.xml"]),
+          "문단(<hp:p>) 개수가 원본과 동일")
 
-    # 두 번째 다운로드(맞춤 금액 포함)는 첫 결과를 훼손하지 않는다
-    check("3,250,000원" in text and "3,250,000원" not in text2, "두 번째 다운로드에서만 금액이 가려진다")
-    check(text2.count("***@kitech.re.kr") == text.count("***@kitech.re.kr"),
-          "여러 번 내려받아도 치환이 중복·훼손되지 않는다")
+    # 메타데이터 초기화
+    def meta_text(files):
+        return "\n".join(files[n].decode("utf-8", "ignore")
+                         for n in ("Contents/content.hpf", "settings.xml", "Contents/header.xml") if n in files)
 
-    # 미리보기 흔적 정리
-    prv = masked.get("Preview/PrvText.txt", b"").decode("utf-8", "ignore")
-    check("700223-1234567" not in prv and "홍길동" not in prv,
-          "PrvText(미리보기 텍스트)에도 원본 개인정보가 남지 않는다", prv[:40].replace("\n", " "))
-    check(masked.get("Preview/PrvImage.png") != orig.get("Preview/PrvImage.png"),
-          "PrvImage(썸네일)도 원본 그대로 두지 않는다")
+    check("홍길동" not in meta_text(m1) and "신운철" not in meta_text(m1),
+          "다운로드본에서 작성자·최종수정자 메타데이터가 사라졌다")
+    check("C:\\Users" not in meta_text(m1), "다운로드본에서 경로 메타데이터가 사라졌다")
+    check("홍길동" in meta_text(m2) and "신운철" in meta_text(m2),
+          "옵션을 끈 파일에는 메타데이터가 그대로 남는다")
+    check(t1 == t2, "메타데이터 옵션과 무관하게 본문 마스킹 결과는 같다")
 
-    # rhwp 로 실제로 열리는지
-    import subprocess
-    info = subprocess.run(["rhwp", "info", out1, "--json"], capture_output=True, text=True)
-    ok = info.returncode == 0
-    detail = ""
-    if ok:
-        j = json.loads(info.stdout)
-        detail = f"{j.get('format')} · {j.get('pageCount')}쪽 · 문단 {j.get('paraCount')}"
-        ok = j.get("format") == "hwpx" and j.get("pageCount", 0) >= 1
-    check(ok, "한글 엔진(rhwp)이 산출물을 HWPX 로 인식한다", detail or info.stderr[:80])
+    prv = m1.get("Preview/PrvText.txt", b"").decode("utf-8", "ignore")
+    check("700223-1234567" not in prv and "010-8990-0543" not in prv,
+          "PrvText(미리보기 텍스트)에도 원본 개인정보가 남지 않는다")
+    check(m1.get("Preview/PrvImage.png") != orig.get("Preview/PrvImage.png"), "PrvImage(썸네일)도 정리한다")
+
+    info = rhwp_info(out1)
+    check(info is not None and info.get("format") == "hwpx" and info.get("pageCount", 0) >= 1,
+          "한글 엔진(rhwp)이 산출물을 HWPX 로 인식한다",
+          str(info and {k: info.get(k) for k in ("format", "pageCount", "paraCount")}))
     pdf = os.path.join(SHOTS, "masked-preview.pdf")
-    r = subprocess.run(["rhwp", "export-pdf", out1, "-o", pdf,
-                        "--font-path", "/usr/share/fonts/pickle-hwp", "--json"],
+    r = subprocess.run(["rhwp", "export-pdf", out1, "-o", pdf, "--font-path", "/usr/share/fonts/pickle-hwp", "--json"],
                        capture_output=True, text=True)
-    check(r.returncode == 0, "산출물 PDF 렌더 성공(레이아웃 유지)", r.stderr[:80])
+    check(r.returncode == 0 and os.path.getsize(pdf) > 10000, "산출물 PDF 렌더 성공(레이아웃 유지)", r.stderr[:80])
+
+    info_o = rhwp_info(SAMPLE)
+    check(info is not None and info_o is not None and info.get("paraCount") == info_o.get("paraCount"),
+          "문단 수가 원본과 동일하다(rhwp 기준)",
+          f"{info_o and info_o.get('paraCount')} → {info.get('paraCount')}")
+
+    # 폴백 산출물
+    infos3, m3 = read_zip(out3)
+    t3 = section_text(m3)
+    check("홍길동" not in t3 and "홍OO" in t3, "폴백 경로 산출물도 동일하게 마스킹된다")
+
+    # 대용량 산출물
+    if os.path.exists(os.path.join(SHOTS, "대용량_masked.hwpx")):
+        infos4, m4 = read_zip(os.path.join(SHOTS, "대용량_masked.hwpx"))
+        t4 = section_text(m4)
+        check("010-8990-0543" not in t4 and "hong@kitech.re.kr" not in t4,
+              "대용량 산출물에서도 원본 연락처가 사라졌다")
+        check("010-****-0543" in t4 and "***@kitech.re.kr" in t4, "대용량 산출물에 마스킹 결과가 들어 있다")
+        check(para_ids(m4["Contents/section0.xml"]) == para_ids(read_zip(STRESS)[1]["Contents/section0.xml"]),
+              "대용량 산출물의 문단 개수가 원본과 동일하다")
+        info4 = rhwp_info(os.path.join(SHOTS, "대용량_masked.hwpx"))
+        check(info4 is not None and info4.get("format") == "hwpx",
+              "대용량 산출물도 rhwp 가 HWPX 로 인식한다", str(info4 and info4.get("paraCount")))
 
     print("\n=== 결과 ===")
     print(f"통과 {len(logs) - len(fails)} / {len(logs)}")

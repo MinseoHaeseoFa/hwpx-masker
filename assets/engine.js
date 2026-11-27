@@ -1,38 +1,20 @@
 /* ============================================================
-   민감정보 안심마스커 · HWPX 마스킹 엔진
+   민감정보 안심마스커 · HWPX 마스킹 엔진 v2
    ------------------------------------------------------------
-   · 모든 처리는 브라우저 메모리에서만 이뤄집니다. 네트워크 요청 없음.
-   · .hwpx(ZIP) 안의 Contents/section*.xml 에서 <hp:t> 텍스트만 바꾸고
-     나머지 엔트리(mimetype·META-INF·BinData·스타일)는 그대로 다시 담습니다.
+   · 이 파일은 메인 스레드와 Web Worker 양쪽에서 그대로 실행됩니다.
+     (DOM API 를 쓰지 않고, XML 은 문자열 단위로만 다룹니다.)
+   · .hwpx(ZIP) 안에서 바꾸는 것은 <hp:t> 안의 글자뿐입니다.
+     나머지 바이트(mimetype·META-INF·스타일·표 태그)는 원본 그대로 둡니다.
    · 하나의 단어가 여러 <hp:t> 로 쪼개진 경우(run split)도 문단 단위로
      이어 붙여 찾은 뒤, 걸친 구간만 정확히 치환합니다.
    ============================================================ */
-(function (global) {
+(function (root) {
   'use strict';
 
-  const HP = 'http://www.hancom.co.kr/hwpml/2011/paragraph';
-  const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
   const BLANK_PNG_B64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-  /* ── 작은 도우미 ─────────────────────────────────── */
-  const ln = (el) => el.localName || String(el.nodeName || '').split(':').pop();
-  const isEl = (n) => n && n.nodeType === 1;
-
-  function nearest(el, names) {
-    let cur = el.parentNode;
-    while (isEl(cur)) {
-      if (names.indexOf(ln(cur)) !== -1) return cur;
-      cur = cur.parentNode;
-    }
-    return null;
-  }
-
-  function cellOf(el) { return nearest(el, ['tc']); }
-
-  function stars(n) { return '*'.repeat(n); }
-
-  /* ── 탐지 카테고리 ──────────────────────────────── */
+  /* ── 탐지 카테고리 ───────────────────────────────── */
   const CATEGORIES = [
     { id: 'rrn',     name: '주민등록번호·외국인등록번호', sample: '700223-1******' },
     { id: 'phone',   name: '휴대전화·유선전화',           sample: '010-****-0543' },
@@ -45,7 +27,14 @@
   ];
   const CATEGORY_ORDER = CATEGORIES.map((c) => c.id);
 
-  /* ── 마스킹 규칙 ────────────────────────────────── */
+  const REGION_LABEL = {
+    header: '머리말', footer: '꼬리말', footnote: '각주',
+    endnote: '미주', textbox: '글상자', caption: '캡션'
+  };
+
+  /* ── 가리는 방식 ─────────────────────────────────── */
+  const stars = (n) => '*'.repeat(n);
+
   const MASKS = {
     rrn(s) {
       let n = 0;
@@ -82,12 +71,11 @@
       return s.replace(/\d/g, (d) => (i++ < keepHead ? d : '*'));
     },
     vehicle(s) {
-      // 뒤쪽 4자리(일련번호)만 가린다
       return s.replace(/(\d{4})(?![\s\S]*\d)/, '****');
     },
     birth(s, m) {
-      // m: year/month/day 조각 위치
-      return s.slice(0, m.monthStart) + stars(m.monthLen) + s.slice(m.monthStart + m.monthLen, m.dayStart) +
+      return s.slice(0, m.monthStart) + stars(m.monthLen) +
+        s.slice(m.monthStart + m.monthLen, m.dayStart) +
         stars(m.dayLen) + s.slice(m.dayStart + m.dayLen);
     },
     amount(s) { return s.replace(/\d/g, '*'); },
@@ -106,10 +94,9 @@
     }
   };
 
-  // 주소는 '시·군·구까지 남기고' 나머지를 가린다.
-  function maskAddress(s) { return s.replace(/[^\s]/g, '*'); }
+  const maskAddress = (s) => s.replace(/[^\s]/g, '*');
 
-  /* ── 자동 탐지기 ────────────────────────────────── */
+  /* ── 정규식 ─────────────────────────────────────── */
   const RRN_RE = /(?<!\d)\d{6}[-–—]?[1-8]\d{6}(?!\d)/g;
   const PHONE_MOBILE_RE = /(?<!\d)01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}(?!\d)/g;
   const PHONE_LAND_RE = /(?<!\d)0\d{1,2}[-.\s]\d{3,4}[-.\s]\d{4}(?!\d)/g;
@@ -127,20 +114,21 @@
     let m;
     while ((m = re.exec(text)) !== null) {
       if (!m[0]) { re.lastIndex += 1; continue; }
-      const r = fn(m, text);
+      const r = fn ? fn(m, text) : { original: m[0] };
       if (r) out.push(Object.assign({ start: m.index }, r));
     }
     return out;
   }
 
-  function looksLikeDate(s) { return DATE_RE.test(s.trim()); }
+  /* ── 도형 판별(겹침 방지용) ─────────────────────── */
+  const looksLikeDate = (s) => DATE_RE.test(s.trim());
+  const looksLikePhone = (s) => /^0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}$/.test(s);
+  const looksLikeRrn = (s) => /^\d{6}[-–—]?[1-8]\d{6}$/.test(s);
+  const looksLikeBiz = (s) => /^\d{3}-\d{2}-\d{5}$/.test(s) || /^\d{6}-\d{7}$/.test(s);
+  const looksLikeCard = (s) => /^\d{4}[-.\s]\d{4}[-.\s]\d{4}[-.\s]\d{4}$/.test(s);
+  const digitsOf = (s) => (s.match(/\d/g) || []).length;
 
-  function detectRrn(text) {
-    return collect(RRN_RE, text, (m) => ({
-      category: 'rrn', original: m[0], masked: MASKS.rrn(m[0])
-    }));
-  }
-
+  /* ── 개별 탐지기 ─────────────────────────────────── */
   function detectPhone(text) {
     const out = collect(PHONE_MOBILE_RE, text, (m) => ({
       category: 'phone', original: m[0], masked: MASKS.phone(m[0])
@@ -162,24 +150,15 @@
     return collect(CARD_RE, text, (m) => ({ category: 'account', original: m[0], masked: MASKS.card(m[0]) }));
   }
 
-  function detectBizNo(text) {
-    const out = collect(BIZ_RE, text, (m) => ({
-      category: 'bizno', original: m[0], masked: MASKS.bizno(m[0])
-    }));
-    for (const m of collect(CORP_RE, text, (mm) => ({
-      category: 'bizno', original: mm[0], masked: MASKS.bizno(mm[0])
-    }))) {
-      if (out.some((o) => m.start < o.start + o.original.length && m.start + m.original.length > o.start)) continue;
-      out.push(m);
-    }
-    return out.sort((a, b) => a.start - b.start);
-  }
-
   function detectAccount(text) {
     return collect(ACCOUNT_RE, text, (m) => {
       const raw = m[0];
-      if (looksLikeDate(raw)) return null;               // 2026.01.01 같은 날짜 제외
-      if ((raw.match(/\d/g) || []).length < 8) return null;
+      if (looksLikeDate(raw)) return null;          // 2026.01.01
+      if (looksLikePhone(raw)) return null;         // 010-8990-0543 → 전화 규칙의 몫
+      if (looksLikeRrn(raw)) return null;           // 700223-1234567 → 주민번호 규칙의 몫
+      if (looksLikeBiz(raw)) return null;           // 123-45-67890 → 사업자/법인 규칙의 몫
+      if (looksLikeCard(raw)) return null;          // 카드 규칙(같은 카테고리)이 먼저 잡는다
+      if (digitsOf(raw) < 8) return null;
       return { category: 'account', original: raw, masked: MASKS.account(raw) };
     });
   }
@@ -210,7 +189,6 @@
     const hits = [];
     for (let i = 0; i < toks.length; i++) {
       const t = toks[i];
-      let roadStartTok = i;
       let hasNumAfter = false;
       if (ROAD_TOKEN.test(t.text)) {
         hasNumAfter = i + 1 < toks.length && /^\d/.test(toks[i + 1].text);
@@ -220,17 +198,13 @@
         continue;
       }
       if (!hasNumAfter) continue;
-
-      // 앞쪽 시·군·구 / 시·도 접두부 찾기
       let p = i - 1;
       let prefixTok = null;
       while (p >= 0) {
         const pt = toks[p].text.replace(/[,]$/, '');
         if (SUBREGION_TOKEN.test(pt) || REGION_TOKEN.test(pt)) { prefixTok = p; p -= 1; } else break;
       }
-      // 접두부가 전혀 없으면 주소로 보지 않는다(도로명만 있는 문장 오탐 방지)
       if (prefixTok === null) continue;
-
       const start = t.start;
       let end = t.end;
       let j = i + 1;
@@ -243,7 +217,7 @@
     return hits;
   }
 
-  /* ── 생년월일 ───────────────────────────────────── */
+  /* ── 생년월일 ────────────────────────────────────── */
   const BIRTH_LABEL_RE = /(생년월일|생일|생\s*[:：])/;
   const DATE_IN_TEXT_RE = /(?<!\d)((?:19|20)\d{2})(\s*[.\-/년]\s*)(\d{1,2})(\s*[.\-/월]\s*)(\d{1,2})일?/g;
 
@@ -268,28 +242,66 @@
   function detectBirth(text, contextLabel) {
     const out = [];
     const label = BIRTH_LABEL_RE.exec(text);
-    if (label) {
-      addBirthFrom(text, label.index + label[0].length, label.index + label[0].length + 20, out);
-    }
-    if (!out.length && contextLabel && /생년월일|생일/.test(contextLabel)) {
-      addBirthFrom(text, 0, text.length, out);
-    }
+    if (label) addBirthFrom(text, label.index + label[0].length, label.index + label[0].length + 20, out);
+    if (!out.length && contextLabel && /생년월일|생일/.test(contextLabel)) addBirthFrom(text, 0, text.length, out);
     return out;
   }
 
-  const DETECTORS = {
-    address: (t) => detectAddress(t),
-    phone: (t) => detectPhone(t),
-    rrn: (t) => detectRrn(t),
-    email: (t) => detectEmail(t),
-    card: (t) => detectCard(t),
-    bizno: (t) => detectBizNo(t),
-    account: (t) => detectAccount(t),
-    vehicle: (t) => detectVehicle(t),
-    birth: (t, ctx) => detectBirth(t, ctx)
+  /* ── 문단 하나 탐지(겹침 우선순위 정리 포함) ────── */
+  const PRIO = {
+    address: 95, phone: 90, rrn: 85, email: 80, card: 75,
+    bizno: 70, vehicle: 60, account: 40, birth: 30
   };
-  // 겹칠 때의 우선순위(앞에 있을수록 문서 구조를 더 잘 아는 규칙)
-  const DETECT_ORDER = ['address', 'phone', 'rrn', 'email', 'card', 'bizno', 'account', 'vehicle', 'birth'];
+
+  function nearText(text, start, contextLabel) {
+    return text.slice(Math.max(0, start - 18), start) + '|' + (contextLabel || '');
+  }
+
+  function detectPara(text, enabled, contextLabel) {
+    if (!text) return [];
+    const en = enabled || {};
+    const on = (k) => en[k] !== false;
+    const cands = [];
+    const push = (category, start, original, masked, prio) => {
+      if (original) cands.push({ category, start, original, masked, prio: prio || PRIO[category] || 0 });
+    };
+
+    if (on('address')) for (const h of detectAddress(text)) push('address', h.start, h.original, h.masked);
+    if (on('phone')) for (const h of detectPhone(text)) push('phone', h.start, h.original, h.masked);
+    if (on('email')) for (const h of detectEmail(text)) push('email', h.start, h.original, h.masked);
+    if (on('account')) for (const h of detectCard(text)) push('account', h.start, h.original, h.masked, 75);
+    if (on('account')) for (const h of detectAccount(text)) push('account', h.start, h.original, h.masked);
+    if (on('vehicle')) for (const h of detectVehicle(text)) push('vehicle', h.start, h.original, h.masked);
+    if (on('birth')) for (const h of detectBirth(text, contextLabel)) push('birth', h.start, h.original, h.masked);
+
+    // 주민등록번호(6-7) ↔ 법인등록번호(6-7) 는 문맥(표 라벨·앞 단어)으로 갈라낸다.
+    if (on('rrn') || on('bizno')) {
+      for (const m of collect(RRN_RE, text)) {
+        const corp = /법인/.test(nearText(text, m.start, contextLabel));
+        if (corp) { if (on('bizno')) push('bizno', m.start, m.original, MASKS.bizno(m.original)); }
+        else if (on('rrn')) push('rrn', m.start, m.original, MASKS.rrn(m.original));
+      }
+      for (const m of collect(CORP_RE, text)) {
+        if (on('rrn') && /^[1-8]$/.test(m.original.slice(7, 8)) && !/법인/.test(nearText(text, m.start, contextLabel))) continue; // RRN 규칙이 처리
+        if (!on('bizno')) continue;
+        push('bizno', m.start, m.original, MASKS.bizno(m.original));
+      }
+    }
+    if (on('bizno')) for (const m of collect(BIZ_RE, text)) push('bizno', m.start, m.original, MASKS.bizno(m.original));
+
+    // 우선순위 → 시작 위치 → 긴 문자열 순으로 받아들이고, 겹치는 후보는 버린다.
+    cands.sort((a, b) => (b.prio - a.prio) || (a.start - b.start) ||
+      (b.original.length - a.original.length));
+    const taken = [];
+    const out = [];
+    for (const c of cands) {
+      const end = c.start + c.original.length;
+      if (taken.some((r) => c.start < r.end && end > r.start)) continue;
+      taken.push({ start: c.start, end });
+      out.push({ category: c.category, start: c.start, original: c.original, masked: c.masked });
+    }
+    return out.sort((a, b) => a.start - b.start);
+  }
 
   /* ── 표 라벨 후보 ───────────────────────────────── */
   const LABEL_KINDS = {
@@ -299,6 +311,12 @@
     생년월일: 'birth', 생일: 'birth'
   };
   const normalizeLabel = (s) => String(s || '').replace(/\s+/g, '').replace(/[:：]$/, '');
+  /* 표 라벨은 아니지만 "값의 성격"을 알려 주는 머리글 — 분류(주민번호↔법인번호)에만 쓴다. */
+  const CONTEXT_LABELS = [
+    '주민등록번호', '외국인등록번호', '법인등록번호', '사업자등록번호',
+    '휴대전화', '전화번호', '유선전화', '연락처', '이메일', '입금계좌', '계좌번호',
+    '카드번호', '차량번호', '주소', '생년월일', '생일'
+  ];
 
   function maskForKind(value, kind) {
     if (kind === 'name') return MASKS.center(value);
@@ -307,246 +325,662 @@
     return MASKS.all(value);
   }
 
-  /* ── HWPX 열기 ──────────────────────────────────── */
-  async function open(buffer, fileName) {
-    if (typeof JSZip === 'undefined') {
-      const e = new Error('JSZip 없음');
-      e.code = 'NO_JSZIP';
-      throw e;
-    }
-    const bytes = new Uint8Array(buffer);
-    // 구형 .hwp(OLE/CFB) 는 ZIP 이 아니다.
-    if (bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0) {
-      const e = new Error('HWP');
-      e.code = 'HWP';
-      throw e;
-    }
-    if (!(bytes[0] === 0x50 && bytes[1] === 0x4b)) {
-      const e = new Error('ZIP');
-      e.code = 'NOT_ZIP';
-      throw e;
-    }
-    let zip;
-    try {
-      zip = await JSZip.loadAsync(bytes);
-    } catch (err) {
-      const e = new Error('ZIP');
-      e.code = 'NOT_ZIP';
-      throw e;
-    }
+  /* ── 문자열 도우미 ──────────────────────────────── */
+  const escXml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const wordChar = (ch) => !!ch && /[0-9A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ]/.test(ch);
 
-    const order = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
-    const files = {};
-    for (const n of order) files[n] = await zip.file(n).async('uint8array');
-
-    const mimeBytes = files['mimetype'];
-    const mimeText = mimeBytes ? new TextDecoder('utf-8').decode(mimeBytes).trim() : '';
-    if (!/hwp\+zip/i.test(mimeText)) {
-      const e = new Error('HWPX 미확인');
-      e.code = 'NOT_HWPX';
-      throw e;
-    }
-
-    const sectionNames = order.filter((n) => /^Contents\/section\d+\.xml$/i.test(n)).sort();
-    if (!sectionNames.length) {
-      const e = new Error('섹션 없음');
-      e.code = 'NO_SECTION';
-      throw e;
-    }
-
-    const parser = new DOMParser();
-    const sections = sectionNames.map((name) => {
-      const xml = new TextDecoder('utf-8').decode(files[name]);
-      const doc = parser.parseFromString(xml, 'application/xml');
-      if (doc.getElementsByTagName('parsererror').length) {
-        const e = new Error('XML 오류: ' + name);
-        e.code = 'BAD_XML';
-        throw e;
-      }
-      return { name, xml, doc };
-    });
-
-    const document = {
-      fileName: fileName || 'document.hwpx',
-      fileSize: bytes.length,
-      files, order, sections,
-      paras: [], blocks: [], itemMap: new Map()
-    };
-    buildParas(document);
-    buildBlocks(document);
-    annotateLabels(document);
-    return document;
-  }
-
-  function collectParasOf(docOrRoot, si) {
+  function occurrencesInText(text, word, mode) {
     const out = [];
-    const ps = docOrRoot.getElementsByTagNameNS(HP, 'p');
-    for (const p of Array.from(ps)) {
-      const ts = Array.from(p.getElementsByTagNameNS(HP, 't'))
-        .filter((t) => nearest(t, ['p']) === p);
-      const nodes = [];
-      let pos = 0;
-      for (const t of ts) {
-        const len = (t.textContent || '').length;
-        nodes.push({ t, start: pos, len });
-        pos += len;
+    if (!text || !word) return out;
+    let from = 0;
+    let idx;
+    while ((idx = text.indexOf(word, from)) !== -1) {
+      from = idx + word.length;
+      if (mode === 'word') {
+        if (wordChar(text[idx - 1]) || wordChar(text[idx + word.length])) continue;
       }
-      out.push({
-        section: si, el: p, nodes,
-        text: nodes.map((n) => n.t.textContent || '').join(''),
-        ranges: [], contextLabel: ''
-      });
+      out.push(idx);
     }
     return out;
   }
 
-  function buildParas(document) {
-    let id = 0;
-    document.sections.forEach((sec, si) => {
-      const list = collectParasOf(sec.doc, si);
-      for (const para of list) {
-        para.id = id++;
-        document.paras.push(para);
-        document.itemMap.set(para.el, para);
-      }
-      sec.paras = list;
-    });
-  }
+  /* ── XML 텍스트 디코딩(치환 좌표 계산용) ────────── */
+  const ENTITY_RE = /&(#[0-9]+|#x[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g;
+  const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
 
-  function buildBlocks(document) {
-    document.sections.forEach((sec) => {
-      const blocks = [];
-      const root = sec.doc.documentElement;
-      for (const child of Array.from(root.children)) {
-        if (ln(child) !== 'p') continue;
-        const para = document.itemMap.get(child);
-        const tables = Array.from(child.getElementsByTagNameNS(HP, 'tbl'))
-          .filter((t) => nearest(t, ['p']) === child);
-        if (tables.length) {
-          for (const tbl of tables) blocks.push({ type: 'table', rows: tableRows(tbl, document) });
-        } else if (para) {
-          blocks.push({ type: 'p', para });
-        }
+  function decodeSegments(raw) {
+    if (raw.indexOf('&') === -1) return { text: raw, segs: null };
+    let text = '';
+    const segs = [];
+    let last = 0;
+    ENTITY_RE.lastIndex = 0;
+    let m;
+    while ((m = ENTITY_RE.exec(raw)) !== null) {
+      if (m.index > last) text += raw.slice(last, m.index);
+      const d0 = text.length;
+      const ent = m[1];
+      let ch;
+      if (ent[0] === '#') {
+        const cp = ent[1] === 'x' || ent[1] === 'X' ? parseInt(ent.slice(2), 16) : parseInt(ent.slice(1), 10);
+        ch = Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : raw.slice(m.index, m.index + m[0].length);
+      } else if (NAMED[ent] !== undefined) {
+        ch = NAMED[ent];
+      } else {
+        ch = raw.slice(m.index, m.index + m[0].length);
+        text += ch;
+        last = m.index + m[0].length;
+        continue;
       }
-      sec.blocks = blocks;
-      document.blocks.push(...blocks);
-    });
-  }
-
-  function tableRows(tbl, document) {
-    const rows = [];
-    const trs = Array.from(tbl.getElementsByTagNameNS(HP, 'tr'))
-      .filter((tr) => nearest(tr, ['tbl']) === tbl);
-    for (const tr of trs) {
-      const cells = [];
-      const tcs = Array.from(tr.getElementsByTagNameNS(HP, 'tc'))
-        .filter((tc) => nearest(tc, ['tc']) === null && nearest(tc, ['tr']) === tr);
-      for (const tc of tcs) {
-        const spanEl = tc.getElementsByTagNameNS(HP, 'cellSpan')[0];
-        const colSpan = spanEl ? Math.max(1, parseInt(spanEl.getAttribute('colSpan') || '1', 10) || 1) : 1;
-        const rowSpan = spanEl ? Math.max(1, parseInt(spanEl.getAttribute('rowSpan') || '1', 10) || 1) : 1;
-        const paras = Array.from(tc.getElementsByTagNameNS(HP, 'p'))
-          .filter((p) => nearest(p, ['tc']) === tc)
-          .map((p) => document.itemMap.get(p))
-          .filter(Boolean);
-        cells.push({ colSpan, rowSpan, paras, text: paras.map((p) => p.text).join(' ').trim() });
-      }
-      rows.push(cells);
+      text += ch;
+      segs.push({ d0, d1: text.length, r0: m.index, r1: m.index + m[0].length });
+      last = m.index + m[0].length;
     }
-    return rows;
+    if (last < raw.length) text += raw.slice(last);
+    return { text, segs };
   }
 
-  /** 표 라벨 옆 값 → 문단에 contextLabel 을 달고, 후보 목록을 만든다. */
-  function annotateLabels(document) {
-    const candidates = [];
+  function runRawPos(run, dpos) {
+    if (!run.segs) return run.rawStart + dpos;
+    let delta = 0;
+    for (const s of run.segs) {
+      if (dpos <= s.d0) break;
+      if (dpos < s.d1) return run.rawStart + s.r0;
+      delta += (s.r1 - s.r0) - (s.d1 - s.d0);
+    }
+    return run.rawStart + dpos + delta;
+  }
+
+  function runRawEnd(run, dpos) {
+    if (!run.segs) return run.rawStart + dpos;
+    for (const s of run.segs) {
+      if (dpos > s.d0 && dpos < s.d1) return run.rawStart + s.r1;
+    }
+    return runRawPos(run, dpos);
+  }
+
+  /* ── HWPX 파서(문자열 단위) ─────────────────────── */
+  function findTagEnd(xml, lt) {
+    let quote = 0;
+    for (let i = lt + 1; i < xml.length; i += 1) {
+      const c = xml.charCodeAt(i);
+      if (quote) {
+        if (c === quote) quote = 0;
+      } else if (c === 34) quote = 34;
+      else if (c === 39) quote = 39;
+      else if (c === 62) return i;      // '>'
+    }
+    return -1;
+  }
+
+  function parseSection(xml, sectionIndex, state) {
+    const paras = state.paras;
+    const paraStack = [];
+    const tblStack = [];
+    const trStack = [];
+    const tcStack = [];
+    const regionStack = [];
+    const blocks = [];
+    const extras = [];
+    const attrOf = (body, name) => {
+      const m = new RegExp('\\b' + name + '="([^"]*)"').exec(body);
+      return m ? m[1] : null;
+    };
+
+    let i = 0;
+    while (i < xml.length) {
+      const lt = xml.indexOf('<', i);
+      if (lt < 0) break;
+      if (xml.startsWith('<!--', lt)) { const e = xml.indexOf('-->', lt + 4); i = e < 0 ? xml.length : e + 3; continue; }
+      if (xml.startsWith('<![CDATA[', lt)) { const e = xml.indexOf(']]>', lt + 9); i = e < 0 ? xml.length : e + 3; continue; }
+      if (xml.startsWith('<?', lt)) { const e = xml.indexOf('?>', lt + 2); i = e < 0 ? xml.length : e + 2; continue; }
+      if (xml.startsWith('<!', lt)) { const e = xml.indexOf('>', lt + 2); i = e < 0 ? xml.length : e + 1; continue; }
+      const gt = findTagEnd(xml, lt);
+      if (gt < 0) break;
+      const rawTag = xml.slice(lt + 1, gt);
+      const closing = rawTag.charAt(0) === '/';
+      let body = closing ? rawTag.slice(1) : rawTag;
+      const selfClose = /\/\s*$/.test(body);
+      if (selfClose) body = body.replace(/\/\s*$/, '');
+      const nm = /^([A-Za-z_][\w.:-]*)/.exec(body);
+      if (!nm) { i = gt + 1; continue; }
+      const tagName = nm[1];
+      const local = tagName.split(':').pop().toLowerCase();
+
+      if (!closing && !selfClose && local === 't') {
+        const closeTag = '</' + tagName + '>';
+        let ce = xml.indexOf(closeTag, gt + 1);
+        if (ce < 0) ce = xml.indexOf('</' + 't>', gt + 1);
+        if (ce < 0) { i = gt + 1; continue; }
+        const rawInner = xml.slice(gt + 1, ce);
+        const para = paraStack[paraStack.length - 1];
+        if (para && rawInner) {
+          const { text, segs } = decodeSegments(rawInner);
+          if (text) {
+            para.runs.push({
+              start: para.text.length, len: text.length,
+              rawStart: gt + 1, rawEnd: ce, segs
+            });
+            para.text += text;
+          }
+        }
+        i = ce + closeTag.length;
+        continue;
+      }
+
+      if (closing) {
+        if (local === 'p') {
+          const para = paraStack.pop();
+          if (para && para.topLevel) {
+            if (para.text.trim()) blocks.push({ type: 'p', paraId: para.id });
+            for (const t of para.tables) blocks.push({ type: 'table', tbl: t });
+          }
+        } else if (local === 'tbl') tblStack.pop();
+        else if (local === 'tr') trStack.pop();
+        else if (local === 'tc') tcStack.pop();
+        else if (local === 'header' || local === 'footer' || local === 'footnote' ||
+                 local === 'endnote' || local === 'drawtext' || local === 'caption') {
+          const reg = regionStack.pop();
+          if (reg && reg.paraIds.length) extras.push(reg);
+        }
+        i = gt + 1;
+        continue;
+      }
+
+      switch (local) {
+        case 'p': {
+          const region = regionStack[regionStack.length - 1];
+          const para = {
+            id: state.nextId++, text: '', runs: [], tables: [],
+            topLevel: paraStack.length === 0,
+            region: region ? region.kind : null,
+            section: sectionIndex,
+            contextLabel: ''
+          };
+          paras.push(para);
+          if (region) region.paraIds.push(para.id);
+          if (tcStack.length) tcStack[tcStack.length - 1].paraIds.push(para.id);
+          paraStack.push(para);
+          break;
+        }
+        case 'tbl': {
+          const owner = paraStack[paraStack.length - 1];
+          const tbl = { rows: [] };
+          if (owner) owner.tables.push(tbl);
+          tblStack.push(tbl);
+          break;
+        }
+        case 'tr': {
+          const tr = { cells: [] };
+          if (tblStack.length) tblStack[tblStack.length - 1].rows.push(tr);
+          trStack.push(tr);
+          break;
+        }
+        case 'tc': {
+          const tc = { colSpan: 1, rowSpan: 1, paraIds: [] };
+          if (trStack.length) trStack[trStack.length - 1].cells.push(tc);
+          tcStack.push(tc);
+          break;
+        }
+        case 'cellspan': {
+          const tc = tcStack[tcStack.length - 1];
+          if (tc) {
+            tc.colSpan = Math.max(1, parseInt(attrOf(body, 'colSpan') || '1', 10) || 1);
+            tc.rowSpan = Math.max(1, parseInt(attrOf(body, 'rowSpan') || '1', 10) || 1);
+          }
+          break;
+        }
+        case 'header': case 'footer': case 'footnote': case 'endnote': case 'drawtext': case 'caption': {
+          const kind = local === 'drawtext' ? 'textbox' : local;
+          regionStack.push({ kind, label: REGION_LABEL[kind] || kind, paraIds: [] });
+          break;
+        }
+        default: break;
+      }
+      i = gt + 1;
+    }
+    return { blocks, extras };
+  }
+
+  /* ── 라벨 후보 계산 ─────────────────────────────── */
+  const INLINE_LABEL_RE = /(성명|대상자|피감사인|부서|소속|담당부서|소속부서|기관명|업체명|회사명|법인등록번호|사업자등록번호|주민등록번호|휴대전화|전화번호|이메일|입금계좌|계좌번호|주소|차량번호)\s*[:：]\s*([^\s,，、;；()]{1,40}(?:\s*(?:주식회사|㈜|유한회사|유한책임회사))?)/g;
+
+  function buildLabelCandidates(state) {
+    const out = [];
     const seen = new Set();
-    for (const sec of document.sections) {
+    const byId = state.byId;
+    const add = (kind, label, value) => {
+      const key = kind + '|' + value;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ kind: 'label', category: kind, label, original: value, masked: maskForKind(value, kind) });
+    };
+
+    for (const sec of state.sections) {
       for (const block of sec.blocks) {
         if (block.type !== 'table') continue;
-        for (const row of block.rows) {
-          for (let i = 0; i < row.length - 1; i++) {
-            const kind = LABEL_KINDS[normalizeLabel(row[i].text)];
-            if (!kind) continue;
-            const valueCell = row[i + 1];
-            const value = valueCell.text.replace(/\s+/g, ' ').trim();
+        for (const tr of block.tbl.rows) {
+          for (let c = 0; c < tr.cells.length - 1; c += 1) {
+            const labelText = tr.cells[c].paraIds.map((id) => byId[id].text).join(' ').trim();
+            const norm = normalizeLabel(labelText);
+            const kind = LABEL_KINDS[norm];
+            const isContext = !kind && CONTEXT_LABELS.indexOf(norm) !== -1;
+            if (!kind && !isContext) continue;
+            const valueCell = tr.cells[c + 1];
+            const value = valueCell.paraIds.map((id) => byId[id].text).join(' ').replace(/\s+/g, ' ').trim();
             if (!value) continue;
-            valueCell.paras.forEach((p) => { if (!p.contextLabel) p.contextLabel = normalizeLabel(row[i].text); });
-            if (kind === 'birth') continue;  // 생년월일은 자동 탐지가 처리
+            for (const id of valueCell.paraIds) {
+              if (!byId[id].contextLabel) byId[id].contextLabel = norm;
+            }
+            if (!kind || kind === 'birth') continue;     // 생년월일·유형 머리글은 자동 탐지가 처리
             if (value.length > 40) continue;
-            const key = kind + '|' + value;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            candidates.push({
-              kind: 'label', category: kind, label: normalizeLabel(row[i].text),
-              original: value, masked: maskForKind(value, kind)
-            });
+            add(kind, norm, value);
           }
         }
       }
     }
-    // 본문 안의 "부서: 값" 형태
-    const INLINE_LABEL_RE = /(성명|대상자|피감사인|부서|소속|담당부서|소속부서|기관명|업체명|회사명)\s*[:：]\s*([^\s,，、;；()]{1,30}(?:\s*(?:주식회사|㈜|유한회사|유한책임회사))?)/g;
-    for (const para of document.paras) {
+
+    for (const para of state.paras) {
       INLINE_LABEL_RE.lastIndex = 0;
       let m;
       while ((m = INLINE_LABEL_RE.exec(para.text)) !== null) {
         const kind = LABEL_KINDS[normalizeLabel(m[1])];
-        if (!kind) continue;
+        if (!kind || kind === 'birth') continue;
         const value = m[2].trim();
         if (!value || value.length > 30) continue;
-        const key = kind + '|' + value;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        candidates.push({
-          kind: 'label', category: kind, label: normalizeLabel(m[1]),
-          original: value, masked: maskForKind(value, kind)
-        });
+        if (/^(성명|부서|소속|기관명|업체명|회사명|기관|업체)$/.test(value)) continue;
+        add(kind, normalizeLabel(m[1]), value);
       }
     }
-    document.labelCandidates = candidates;
+    return out;
   }
 
-  /* ── 탐지 실행 ──────────────────────────────────── */
-  function detect(document, enabled) {
-    const found = [];
-    for (const per of DETECT_ORDER) {
-      // 카드번호와 계좌번호는 같은 체크박스(account)를 쓴다
-      if (per === 'card' ? !enabled.account : !enabled[per]) continue;
-      for (const para of document.paras) {
-        if (!para.text) continue;
-        const hits = DETECTORS[per](para.text, para.contextLabel);
-        for (const h of hits) found.push({ paraId: para.id, start: h.start, original: h.original, masked: h.masked, category: h.category });
-      }
+  /* ── HWPX 열기 ──────────────────────────────────── */
+  let current = null;   // 마지막으로 연 문서(내부 구조) — build() 가 사용
+
+  function jszip() {
+    const Z = root.JSZip;
+    if (typeof Z === 'undefined') {
+      const e = new Error('JSZip 없음');
+      e.code = 'NO_JSZIP';
+      throw e;
     }
-    // 겹침 정리: 카테고리 우선순위 → 시작 위치 순
-    found.sort((a, b) => {
-      const pa = DETECT_ORDER.indexOf(a.category === 'card' ? 'card' : a.category);
-      const pb = DETECT_ORDER.indexOf(b.category === 'card' ? 'card' : b.category);
-      return (pa - pb) || (a.start - b.start);
+    return Z;
+  }
+
+  const tick = (fn) => { if (typeof fn === 'function') fn(); };
+
+  async function open(bytes, fileName, onProgress) {
+    const JSZip = jszip();
+    const progress = (phase, pct) => { if (onProgress) onProgress(phase, Math.max(0, Math.min(100, Math.round(pct)))); };
+
+    const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    if (data[0] === 0xd0 && data[1] === 0xcf && data[2] === 0x11 && data[3] === 0xe0) {
+      const e = new Error('HWP'); e.code = 'HWP'; throw e;
+    }
+    if (!(data[0] === 0x50 && data[1] === 0x4b)) {
+      const e = new Error('ZIP'); e.code = 'NOT_ZIP'; throw e;
+    }
+    progress('unzip', 2);
+    let zip;
+    try {
+      zip = await JSZip.loadAsync(data);
+    } catch (err) {
+      const e = new Error('ZIP'); e.code = 'NOT_ZIP'; throw e;
+    }
+    const order = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+    const files = {};
+    const decoder = new TextDecoder('utf-8');
+    for (let k = 0; k < order.length; k += 1) {
+      const name = order[k];
+      const buf = await zip.file(name).async('uint8array');
+      files[name] = buf;
+      // 압축 해제 2~45% 구간을 파일 수 기준으로 나눈다.
+      if (k % 3 === 2 || k === order.length - 1) progress('unzip', 2 + 43 * ((k + 1) / order.length));
+      tick(null);
+    }
+
+    const mime = files['mimetype'] ? decoder.decode(files['mimetype']).trim() : '';
+    if (!/hwp\+zip/i.test(mime)) {
+      const e = new Error('HWPX 미확인'); e.code = 'NOT_HWPX'; throw e;
+    }
+    const sectionNames = order.filter((n) => /^Contents\/section\d+\.xml$/i.test(n)).sort();
+    if (!sectionNames.length) {
+      const e = new Error('섹션 없음'); e.code = 'NO_SECTION'; throw e;
+    }
+
+    progress('parse', 48);
+    const state = { paras: [], sections: [], nextId: 0, byId: {} };
+    const sections = [];
+    for (let si = 0; si < sectionNames.length; si += 1) {
+      const name = sectionNames[si];
+      const xml = decoder.decode(files[name]);
+      if (!/<[A-Za-z_][\w:.-]*:sec\b|<sec\b/.test(xml)) {
+        const e = new Error('XML 오류: ' + name); e.code = 'BAD_XML'; throw e;
+      }
+      const parsed = parseSection(xml, si, state);
+      const sec = { index: si, name, xml, blocks: parsed.blocks, extras: parsed.extras };
+      sections.push(sec);
+      state.sections.push(sec);
+      progress('parse', 48 + (40 * (si + 1)) / sectionNames.length);
+    }
+    for (const p of state.paras) state.byId[p.id] = p;
+
+    const labels = buildLabelCandidates(state);
+    progress('parse', 92);
+
+    /* 문서 모델(화면에서 쓰는 가벼운 사본) */
+    const regions = {};
+    let regionContainers = 0;
+    const viewSections = sections.map((sec) => {
+      const extras = sec.extras.map((reg) => {
+        regions[reg.kind] = (regions[reg.kind] || 0) + 1;
+        regionContainers += 1;
+        return { kind: reg.kind, label: reg.label, paraIds: reg.paraIds.slice() };
+      });
+      return {
+        index: sec.index,
+        blocks: sec.blocks.map((b) => (b.type === 'p'
+          ? { type: 'p', paraId: b.paraId }
+          : {
+            type: 'table',
+            rows: b.tbl.rows.map((tr) => tr.cells.map((tc) => ({
+              colSpan: tc.colSpan, rowSpan: tc.rowSpan,
+              text: tc.paraIds.map((id) => state.byId[id].text).join(' ').trim(),
+              paraIds: tc.paraIds.slice()
+            })))
+          })),
+        extras
+      };
     });
-    const taken = new Map();
-    const accepted = [];
-    for (const h of found) {
-      const list = taken.get(h.paraId) || [];
-      if (list.some((r) => h.start < r.end && h.start + h.original.length > r.start)) continue;
-      list.push({ start: h.start, end: h.start + h.original.length });
-      taken.set(h.paraId, list);
-      accepted.push(h);
-    }
-    return accepted;
-  }
 
-  /* ── 항목 만들기 ────────────────────────────────── */
-  let itemSeq = 1;
-  function newItemId() { return 'it' + (itemSeq++); }
+    const viewParas = state.paras.map((p) => ({
+      id: p.id, text: p.text, contextLabel: p.contextLabel,
+      region: p.region, section: p.section
+    }));
 
-  function itemFromMatch(m, enabled = true) {
-    return {
-      id: newItemId(), kind: 'auto', category: m.category,
-      original: m.original, masked: m.masked, enabled, hits: 0
+    const tableCount = sections.reduce((n, s) => n + s.blocks.filter((b) => b.type === 'table').length, 0);
+    const model = {
+      fileName: fileName || 'document.hwpx',
+      fileSize: data.length,
+      sections: viewSections,
+      paras: viewParas,
+      labelCandidates: labels,
+      stats: {
+        paras: state.paras.length, tables: tableCount, sections: sections.length,
+        regions, regionContainers, entries: order.length
+      },
+      meta: {
+        hasPreviewText: !!files['Preview/PrvText.txt'],
+        hasPreviewImage: !!files['Preview/PrvImage.png'],
+        entries: order.slice()
+      }
     };
+
+    current = { files, order, sections, paras: state.paras, model, fileName: model.fileName };
+    progress('parse', 100);
+    return model;
   }
 
+  /* ── 계획 수립(치환 위치) ───────────────────────── */
+  function plan(paras, items) {
+    const active = items.filter((it) => it.enabled && it.original);
+    active.sort((a, b) => {
+      const ka = a.kind === 'auto' ? 1 : 0;
+      const kb = b.kind === 'auto' ? 1 : 0;
+      if (ka !== kb) return ka - kb;
+      return b.original.length - a.original.length;
+    });
+    for (const p of paras) p.ranges = [];
+    const byId = new Map();
+    for (const p of paras) byId.set(p.id, p);
+    const counts = new Map(items.map((it) => [it.id, 0]));
+    const excluded = (it, pid, start) => {
+      const ex = it.exclude;
+      if (!ex) return false;
+      const key = pid + ':' + start;
+      if (typeof ex.has === 'function') return ex.has(key);
+      if (Array.isArray(ex)) return ex.indexOf(key) !== -1;
+      return !!(ex && ex[key]);
+    };
+    const place = (it, p, start) => {
+      const end = start + it.original.length;
+      if (p.text.slice(start, end) !== it.original) return false;
+      if (excluded(it, p.id, start)) return false;
+      if (p.ranges.some((r) => start < r.end && end > r.start)) return false;
+      p.ranges.push({ start, end, text: it.masked, itemId: it.id, original: it.original });
+      counts.set(it.id, (counts.get(it.id) || 0) + 1);
+      return true;
+    };
+
+    for (const it of active) {
+      // 자동 탐지 항목은 '어디서 찾았는지'를 그대로 따른다 → 카테고리별 분류가 뒤섞이지 않는다.
+      if (it.kind === 'auto' && it.occ && it.occ.length) {
+        for (const o of it.occ) {
+          const p = byId.get(o.p);
+          if (p) place(it, p, o.start);
+        }
+        continue;
+      }
+      const mode = it.matchMode === 'partial' ? 'partial' : (it.kind === 'auto' ? 'partial' : 'word');
+      for (const p of paras) {
+        if (!p.text) continue;
+        for (const start of occurrencesInText(p.text, it.original, mode)) place(it, p, start);
+      }
+    }
+    for (const p of paras) p.ranges.sort((a, b) => a.start - b.start);
+    for (const it of items) it.hits = counts.get(it.id) || 0;
+    return items;
+  }
+
+  /* ── 미리보기·복사용 텍스트 ─────────────────────── */
+  function maskedParaText(para) {
+    if (!para || !para.ranges || !para.ranges.length) return para ? para.text : '';
+    let out = '';
+    let pos = 0;
+    for (const r of para.ranges) {
+      out += para.text.slice(pos, r.start) + r.text;
+      pos = r.end;
+    }
+    return out + para.text.slice(pos);
+  }
+
+  function maskedLines(model) {
+    const byId = {};
+    for (const p of model.paras) byId[p.id] = p;
+    const lines = [];
+    for (const sec of model.sections) {
+      for (const block of sec.blocks) {
+        if (block.type === 'p') {
+          const t = maskedParaText(byId[block.paraId]);
+          if (t.trim()) lines.push(t);
+        } else {
+          for (const row of block.rows) {
+            const cells = row.map((c) => c.paraIds.map((id) => maskedParaText(byId[id])).join(' ').trim());
+            lines.push(cells.join(' | '));
+          }
+          lines.push('');
+        }
+      }
+      for (const ex of sec.extras || []) {
+        const txt = ex.paraIds.map((id) => maskedParaText(byId[id])).join(' ').trim();
+        if (txt) lines.push('[' + ex.label + '] ' + txt);
+      }
+    }
+    return lines;
+  }
+
+  function maskedText(model) {
+    return maskedLines(model).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  /* ── 메타데이터 초기화 ──────────────────────────── */
+  function sanitizeMetadataText(name, xml) {
+    let out = xml;
+    let changed = 0;
+    const blank = (re) => {
+      out = out.replace(re, (m, open, inner, close) => {
+        if (inner && inner.trim()) changed += 1;
+        return open + close;
+      });
+    };
+    if (/content\.hpf$/i.test(name)) {
+      blank(/(<opf:title\b[^>]*>)([\s\S]*?)(<\/opf:title>)/g);
+      blank(/(<dc:[A-Za-z]+\b[^>]*>)([\s\S]*?)(<\/dc:[A-Za-z]+>)/g);
+      out = out.replace(/(<opf:meta\b[^>]*\bname="([^"]+)"[^>]*>)([\s\S]*?)(<\/opf:meta>)/g,
+        (m, open, metaName, inner, close) => {
+          if (/^language$/i.test(metaName)) return m;
+          if (inner && inner.trim()) changed += 1;
+          return open + close;
+        });
+    } else if (/settings\.xml$/i.test(name)) {
+      out = out.replace(/(<config:config-item\b[^>]*\bconfig:name="([^"]+)"[^>]*>)([\s\S]*?)(<\/config:config-item>)/g,
+        (m, open, cfgName, inner, close) => {
+          if (!/(path|folder|dir|recent|file|url|user|author|writer|company|template|title)/i.test(cfgName)) return m;
+          if (inner && inner.trim()) changed += 1;
+          return open + close;
+        });
+    } else if (/header\.xml$/i.test(name)) {
+      blank(/(<(?:[A-Za-z0-9]+:)?(author|creator|writer|lastsaveby|lastmodifiedby|username|company|description|subject|keyword|title|contributor|publisher|source|rights|coverage)\b[^>]*>)([\s\S]*?)(<\/(?:[A-Za-z0-9]+:)?\1>)/gi);
+    }
+    return { xml: out, changed };
+  }
+
+  function resetMetadata(files) {
+    let changed = 0;
+    const touched = [];
+    for (const name of Object.keys(files)) {
+      if (!/(^Contents\/(content\.hpf|header\.xml)$|(^|\/)settings\.xml$)/i.test(name)) continue;
+      const txt = new TextDecoder('utf-8').decode(files[name]);
+      const r = sanitizeMetadataText(name, txt);
+      if (r.changed) {
+        files[name] = new TextEncoder().encode(r.xml);
+        changed += r.changed;
+        touched.push(name);
+      }
+    }
+    return { changed, files: touched };
+  }
+
+  /* ── 저장 ───────────────────────────────────────── */
+  function blankPngBytes() {
+    const bin = atob(BLANK_PNG_B64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function applyEdits(xml, edits) {
+    if (!edits.length) return xml;
+    edits.sort((a, b) => a.start - b.start);
+    const parts = [];
+    let pos = 0;
+    for (const e of edits) {
+      if (e.start < pos) continue;          // 겹치는 수정은 건너뜀(사전에 방지되지만 안전장치)
+      parts.push(xml.slice(pos, e.start), e.text);
+      pos = e.end;
+    }
+    parts.push(xml.slice(pos));
+    return parts.join('');
+  }
+
+  /**
+   * 마스킹된 .hwpx 생성.
+   * @param {object} items  현재 항목 목록(치환 규칙)
+   * @param {object} opts   {cleanTrace, resetMetadata}
+   * @param {function} onProgress (phase, percent)
+   */
+  async function build(items, opts, onProgress) {
+    if (!current) {
+      const e = new Error('열린 문서가 없습니다'); e.code = 'NO_DOC'; throw e;
+    }
+    const JSZip = jszip();
+    const options = opts || {};
+    const progress = (phase, pct) => {
+      if (onProgress) onProgress(phase, Math.max(0, Math.min(100, Math.round(pct))));
+    };
+    const doc = current;
+    plan(doc.paras, items);
+    const viewById = {};
+    for (const vp of doc.model.paras) viewById[vp.id] = vp;
+    for (const p of doc.paras) if (viewById[p.id]) viewById[p.id].ranges = p.ranges;
+
+    const updated = {};
+    const stats = { hits: 0, paragraphs: 0, files: 0, metadata: null, regions: {} };
+    for (let si = 0; si < doc.sections.length; si += 1) {
+      const sec = doc.sections[si];
+      let hits = 0;
+      for (const p of doc.paras) {
+        if (p.section !== sec.index) continue;
+        if (p.ranges && p.ranges.length) { hits += p.ranges.length; stats.paragraphs += 1; }
+      }
+      stats.hits += hits;
+      const edits = sectionEditsFor(doc.paras, sec.index);
+      const out = applyEdits(sec.xml, edits);
+      updated[sec.name] = new TextEncoder().encode(out);
+      progress('replace', 8 + (34 * (si + 1)) / doc.sections.length);
+    }
+
+    const files = Object.assign({}, doc.files);
+    for (const name of Object.keys(updated)) files[name] = updated[name];
+
+    if (options.cleanTrace !== false) {
+      if (files['Preview/PrvText.txt']) {
+        const text = maskedText(doc.model);
+        files['Preview/PrvText.txt'] = new TextEncoder().encode(text);
+      }
+      if (files['Preview/PrvImage.png']) files['Preview/PrvImage.png'] = blankPngBytes();
+    }
+    progress('metadata', 45);
+    if (options.resetMetadata) {
+      stats.metadata = resetMetadata(files);
+    }
+
+    const zip = new JSZip();
+    const order = doc.order.slice();
+    const mimeFirst = order.indexOf('mimetype');
+    if (mimeFirst > 0) { order.splice(mimeFirst, 1); order.unshift('mimetype'); }
+    for (const name of order) {
+      const data = files[name];
+      if (!data) continue;
+      zip.file(name, data, {
+        compression: name === 'mimetype' ? 'STORE' : 'DEFLATE',
+        createFolders: false
+      });
+      stats.files += 1;
+    }
+    progress('zip', 50);
+    const out = await zip.generateAsync(
+      { type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+      (meta) => progress('zip', 50 + meta.percent * 0.5)
+    );
+    const base = doc.fileName.replace(/\.hwpx$/i, '');
+    progress('zip', 100);
+    return { buffer: out, fileName: base + '_masked.hwpx', size: out.length, stats };
+  }
+
+  function sectionEditsFor(paras, sectionIndex) {
+    const edits = [];
+    for (const para of paras) {
+      if (para.section !== sectionIndex) continue;
+      if (!para.ranges || !para.ranges.length) continue;
+      for (let ri = para.ranges.length - 1; ri >= 0; ri -= 1) {
+        const r = para.ranges[ri];
+        let first = true;
+        for (const run of para.runs) {
+          const a = Math.max(r.start, run.start);
+          const b = Math.min(r.end, run.start + run.len);
+          if (a >= b) continue;
+          const rawA = runRawPos(run, a - run.start);
+          const rawB = runRawEnd(run, b - run.start);
+          edits.push({ start: rawA, end: rawB, text: first ? escXml(r.text) : '' });
+          first = false;
+        }
+      }
+    }
+    return edits;
+  }
+
+  /* ── 맞춤 치환 문자 ─────────────────────────────── */
   function customMask(original, style) {
     switch (style) {
       case 'amount': return MASKS.amount(original);
@@ -564,217 +998,57 @@
     }
   }
 
-  /* ── 계획 수립(치환 위치 계산) ─────────────────── */
-  function plan(document, items) {
-    const active = items.filter((it) => it.enabled && it.original);
-    // 구체 항목(맞춤/라벨)을 먼저, 그 다음 자동. 같은 순위면 긴 문자열 먼저.
-    active.sort((a, b) => {
-      const ka = a.kind === 'auto' ? 1 : 0;
-      const kb = b.kind === 'auto' ? 1 : 0;
-      if (ka !== kb) return ka - kb;
-      return b.original.length - a.original.length;
-    });
+  let itemSeq = 1;
+  const newItemId = () => 'it' + (itemSeq++);
 
-    for (const para of document.paras) para.ranges = [];
-    const counts = new Map(items.map((it) => [it.id, 0]));
-
-    for (const it of active) {
-      for (const para of document.paras) {
-        const text = para.text;
-        if (!text) continue;
-        let from = 0;
-        let idx;
-        while ((idx = text.indexOf(it.original, from)) !== -1) {
-          const start = idx;
-          const end = idx + it.original.length;
-          from = end;
-          if (para.ranges.some((r) => start < r.end && end > r.start)) continue;
-          para.ranges.push({ start, end, text: it.masked, itemId: it.id, original: it.original });
-          counts.set(it.id, (counts.get(it.id) || 0) + 1);
-        }
-      }
-    }
-    for (const para of document.paras) para.ranges.sort((a, b) => a.start - b.start);
-    for (const it of items) it.hits = counts.get(it.id) || 0;
-    return items;
-  }
-
-  /* ── XML 치환 ───────────────────────────────────── */
-  function textNodesOf(tEl) {
-    const items = [];
-    let pos = 0;
-    for (const ch of Array.from(tEl.childNodes)) {
-      if (ch.nodeType === 3) {
-        const len = ch.nodeValue.length;
-        items.push({ node: ch, start: pos, len, isText: true });
-        pos += len;
-      } else if (ch.nodeType === 1) {
-        const len = (ch.textContent || '').length;
-        items.push({ node: ch, start: pos, len, isText: false });
-        pos += len;
-      }
-    }
-    return items;
-  }
-
-  function replaceInT(tEl, s, e, repl) {
-    const items = textNodesOf(tEl);
-    const hits = items.filter((it) => Math.max(s, it.start) < Math.min(e, it.start + it.len) ||
-      (it.len === 0 && it.start > s && it.start < e));
-    if (!hits.length) return;
-    const first = hits[0];
-    if (!first.isText) {
-      const tn = tEl.ownerDocument.createTextNode(repl);
-      tEl.insertBefore(tn, first.node);
-    }
-    for (let i = hits.length - 1; i >= 0; i--) {
-      const it = hits[i];
-      const a = Math.max(s, it.start);
-      const b = Math.min(e, it.start + it.len);
-      if (it.isText) {
-        const v = it.node.nodeValue;
-        const ls = a - it.start;
-        const le = b - it.start;
-        const rep = it === first ? repl : '';
-        it.node.nodeValue = v.slice(0, ls) + rep + v.slice(le);
-      } else if (it.start >= s && it.start + it.len <= e) {
-        it.node.parentNode.removeChild(it.node);
-      }
-    }
-  }
-
-  function applyPara(para) {
-    // 뒤에서부터 바꿔야 앞쪽 좌표가 흔들리지 않는다.
-    for (let i = para.ranges.length - 1; i >= 0; i--) {
-      const r = para.ranges[i];
-      for (const n of para.nodes) {
-        const a = Math.max(r.start, n.start);
-        const b = Math.min(r.end, n.start + n.len);
-        if (a >= b) continue;
-        replaceInT(n.t, a - n.start, b - n.start, a === r.start ? r.text : '');
-      }
-    }
-  }
-
-  function serializeSection(sec) {
-    let out = new XMLSerializer().serializeToString(sec.doc);
-    out = out.replace(/^<\?xml[^>]*\?>\s*/, '');
-    return XML_DECL + out;
-  }
-
-  /* ── 마스킹된 텍스트 만들기 ─────────────────────── */
-  function maskedParaText(para) {
-    if (!para.ranges.length) return para.text;
-    let out = '';
-    let pos = 0;
-    for (const r of para.ranges) {
-      out += para.text.slice(pos, r.start) + r.text;
-      pos = r.end;
-    }
-    return out + para.text.slice(pos);
-  }
-
-  function maskedLines(document) {
-    const lines = [];
-    for (const sec of document.sections) {
-      for (const block of sec.blocks) {
-        if (block.type === 'p') {
-          lines.push(maskedParaText(block.para));
-        } else {
-          for (const row of block.rows) {
-            const cells = row.map((c) => c.paras.map(maskedParaText).join(' ').trim());
-            lines.push(cells.join(' | '));
-          }
-          lines.push('');
-        }
-      }
-    }
-    return lines;
-  }
-
-  function maskedText(document) {
-    return maskedLines(document).join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  }
-
-  /* ── 저장 ───────────────────────────────────────── */
-  function blankPngBytes() {
-    const bin = atob(BLANK_PNG_B64);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  }
-
-  async function buildMaskedHwpx(document, opts = {}) {
-    // 원본 바이트에서 매번 새로 파싱 → 여러 번 내려받아도 안전하다.
-    const parser = new DOMParser();
-    const updated = {};
-    document.sections.forEach((sec) => {
-      const fresh = parser.parseFromString(sec.xml, 'application/xml');
-      const freshParas = collectParasOf(fresh, sec.paras ? sec.paras[0]?.section ?? 0 : 0);
-      const src = sec.paras || [];
-      freshParas.forEach((p, i) => {
-        if (src[i]) p.ranges = src[i].ranges;
-      });
-      for (const p of freshParas) if (p.ranges && p.ranges.length) applyPara(p);
-      const out = new XMLSerializer().serializeToString(fresh)
-        .replace(/^<\?xml[^>]*\?>\s*/, '');
-      updated[sec.name] = new TextEncoder().encode(XML_DECL + out);
-    });
-    if (opts.cleanTrace !== false) {
-      if (document.files['Preview/PrvText.txt']) {
-        updated['Preview/PrvText.txt'] = new TextEncoder().encode(maskedLines(document).join('\n'));
-      }
-      if (document.files['Preview/PrvImage.png']) {
-        updated['Preview/PrvImage.png'] = blankPngBytes();
-      }
-    }
-
-    const zip = new JSZip();
-    const order = document.order.slice();
-    // mimetype 은 반드시 첫 엔트리 + 무압축(OCF 규격)
-    const mimeFirst = order.indexOf('mimetype');
-    if (mimeFirst > 0) {
-      order.splice(mimeFirst, 1);
-      order.unshift('mimetype');
-    }
-    for (const name of order) {
-      const data = updated[name] || document.files[name];
-      if (!data) continue;
-      zip.file(name, data, {
-        compression: name === 'mimetype' ? 'STORE' : 'DEFLATE',
-        createFolders: false
-      });
-    }
-    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-    const base = document.fileName.replace(/\.hwpx$/i, '');
-    return { blob, fileName: base + '_masked.hwpx' };
-  }
-
-  /** 한 문자열에 대해 탐지 규칙만 돌려 보는 진단용 함수(테스트·디버깅). */
+  /* ── 진단용: 문자열 하나 탐지 ───────────────────── */
   function scanText(text, enabled) {
-    const en = enabled || {};
-    const on = (k) => (k === 'card' ? en.account !== false : en[k] !== false);
+    return detectPara(text, enabled || {}, '');
+  }
+
+  /* ── 문서 문단에 탐지 적용 ──────────────────────── */
+  function detect(paras, enabled) {
     const found = [];
-    for (const per of DETECT_ORDER) {
-      if (!on(per)) continue;
-      for (const h of DETECTORS[per](text, '')) found.push(h);
+    for (const p of paras) {
+      if (!p.text) continue;
+      for (const h of detectPara(p.text, enabled, p.contextLabel)) {
+        found.push({
+          paraId: p.id, start: h.start, original: h.original,
+          masked: h.masked, category: h.category, region: p.region
+        });
+      }
     }
-    found.sort((a, b) => (DETECT_ORDER.indexOf(a.category) - DETECT_ORDER.indexOf(b.category)) || (a.start - b.start));
-    const taken = [];
+    return found;
+  }
+
+  /* ── 특정 단어의 문서 내 출현 위치 ──────────────── */
+  function occurrences(model, word, mode) {
     const out = [];
-    for (const h of found) {
-      const end = h.start + h.original.length;
-      if (taken.some((r) => h.start < r.end && end > r.start)) continue;
-      taken.push({ start: h.start, end });
-      out.push(h);
+    if (!word) return out;
+    for (const p of model.paras) {
+      for (const start of occurrencesInText(p.text, word, mode)) {
+        const before = p.text.slice(Math.max(0, start - 18), start);
+        const after = p.text.slice(start + word.length, start + word.length + 18);
+        out.push({
+          paraId: p.id, start, context: { before, after },
+          region: p.region, section: p.section
+        });
+      }
     }
     return out;
   }
 
-  global.Masker = {
-    CATEGORIES, DETECT_ORDER, MASKS, customMask, newItemId, scanText,
-    open, detect, plan, serializeSection,
-    maskedText, maskedLines, maskedParaText, buildMaskedHwpx,
-    itemFromMatch, maskForKind
+  root.Masker = {
+    version: '2.0.0',
+    CATEGORIES, CATEGORY_ORDER, REGION_LABEL, MASKS,
+    customMask, maskForKind, newItemId, scanText,
+    detect, plan, occurrences, occurrencesInText, wordChar,
+    maskedText, maskedLines, maskedParaText,
+    open, build, sanitizeMetadataText,
+    Hwpx: {
+      open,
+      build,
+      get current() { return current; }
+    }
   };
-})(window);
+})(typeof self !== 'undefined' ? self : this);

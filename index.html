@@ -77,17 +77,22 @@
       <li>
         <span class="feat-ico" aria-hidden="true">🔍</span>
         <h3>8종 자동 탐지</h3>
-        <p>주민번호·전화·이메일·계좌·카드·사업자·차량·주소·생년월일. 항목별로 켜고 끌 수 있습니다.</p>
+        <p>주민번호·전화·이메일·계좌·카드·사업자·차량·주소·생년월일. 항목별로 켜고 끄면 목록·건수·치환 대상이 바로 따라옵니다.</p>
       </li>
       <li>
         <span class="feat-ico" aria-hidden="true">🎯</span>
         <h3>오탐 없는 맞춤 치환</h3>
-        <p>이름·부서는 표 라벨 옆 값만 후보로 올리고, 미리보기에서 클릭한 단어만 문서 전체에 일괄 적용합니다.</p>
+        <p>「감사」가 「피감사인」 속 글자까지 바꾸지 않도록 단어 단위가 기본입니다. 바꿀 문맥을 미리 보고 하나씩 뺄 수 있습니다.</p>
       </li>
       <li>
-        <span class="feat-ico" aria-hidden="true">🧩</span>
-        <h3>서식 무손실</h3>
-        <p>여러 조각으로 쪼개진 글자(run split)까지 찾아내고, 표·스타일 태그는 건드리지 않습니다.</p>
+        <span class="feat-ico" aria-hidden="true">🔎</span>
+        <h3>전후 비교 검수</h3>
+        <p>원문과 마스킹 후를 나란히 하이라이트로 보여 주고, 머리말·꼬리말·각주까지 빠짐없이 점검합니다.</p>
+      </li>
+      <li>
+        <span class="feat-ico" aria-hidden="true">⚡</span>
+        <h3>대용량도 멈춤 없이</h3>
+        <p>압축 해제·탐지·치환·재압축을 Web Worker에서 처리해 수십 MB 문서도 진행률과 함께 끝까지 갑니다.</p>
       </li>
     </ul>
   </section>
@@ -111,9 +116,15 @@
       <div class="preview-pane card">
         <div class="pane-head">
           <h2>문서 미리보기</h2>
-          <p class="hint">가려질 곳은 <mark class="mk">이렇게</mark> 표시됩니다 · 단어를 더블클릭하거나 드래그하면 맞춤 치환에 추가됩니다</p>
+          <div class="view-seg" role="tablist" aria-label="미리보기 방식">
+            <button type="button" class="seg-btn is-on" data-view="masked" role="tab" aria-selected="true">마스킹 후</button>
+            <button type="button" class="seg-btn" data-view="original" role="tab" aria-selected="false">원문</button>
+            <button type="button" class="seg-btn" data-view="compare" role="tab" aria-selected="false">전후 비교</button>
+          </div>
+          <p id="previewHint" class="hint">가려질 곳은 <mark class="mk">이렇게</mark> 표시됩니다 · 단어를 더블클릭하거나 드래그하면 맞춤 치환에 추가됩니다</p>
         </div>
         <div id="preview" class="preview" aria-label="문서 미리보기"></div>
+        <div id="previewNote" class="preview-note" hidden></div>
       </div>
 
       <aside class="side">
@@ -130,7 +141,7 @@
         <section class="card" aria-labelledby="catTitle">
           <div class="card-head">
             <h2 id="catTitle">자동 탐지</h2>
-            <button id="catAllBtn" class="link-btn" type="button">전체 켜기</button>
+            <button id="catAllBtn" class="link-btn" type="button">전체 끄기</button>
           </div>
           <ul id="catList" class="cat-list"></ul>
         </section>
@@ -154,6 +165,31 @@
             <button class="btn small" type="submit">추가</button>
           </form>
           <p id="addHint" class="form-hint" role="status"></p>
+
+          <div id="affectPanel" class="affect" hidden>
+            <p class="affect-title">「<b id="affectWord"></b>」을(를) 어디까지 바꿀까요?</p>
+            <div class="affect-modes" role="radiogroup" aria-label="일치 방식">
+              <label class="mode-opt">
+                <input type="radio" name="affectMode" value="word" checked>
+                <span>단어 일치 <b>권장</b></span>
+                <span id="affectWordCount" class="mode-count">0곳</span>
+              </label>
+              <label class="mode-opt">
+                <input type="radio" name="affectMode" value="partial">
+                <span>부분 일치</span>
+                <span id="affectPartialCount" class="mode-count">0곳</span>
+              </label>
+            </div>
+            <p id="affectNote" class="affect-note"></p>
+            <ul id="affectList" class="affect-list" aria-label="영향을 받는 문맥"></ul>
+            <div class="affect-foot">
+              <span id="affectSum" class="affect-sum">0곳을 가립니다</span>
+              <div class="affect-btns">
+                <button id="affectCancel" type="button" class="btn small ghost">취소</button>
+                <button id="affectApply" type="button" class="btn small primary">이대로 가리기</button>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section class="card" aria-labelledby="listTitle">
@@ -165,6 +201,31 @@
           <p id="emptyItems" class="card-note" hidden>탐지된 항목이 없습니다. 문서에 개인정보가 없다면 그대로 내려받아도 됩니다.</p>
         </section>
 
+        <section class="card" id="regionCard" aria-labelledby="regionTitle" hidden>
+          <div class="card-head">
+            <h2 id="regionTitle">본문 외 영역 점검</h2>
+            <span id="regionCount" class="count-pill">0</span>
+          </div>
+          <ul id="regionList" class="region-list"></ul>
+          <p class="card-note small">머리말·꼬리말·각주·미주·글상자도 본문과 같은 규칙으로 가립니다.</p>
+        </section>
+
+        <section class="card" aria-labelledby="presetTitle">
+          <div class="card-head">
+            <h2 id="presetTitle">자주 쓰는 마스킹 세트</h2>
+            <span id="presetCount" class="count-pill">0</span>
+          </div>
+          <p class="card-note">지금 설정(탐지 항목 + 맞춤 치환 규칙)을 이름 붙여 <b>이 브라우저에만</b> 저장합니다.</p>
+          <form id="presetForm" class="preset-form" autocomplete="off">
+            <label class="sr-only" for="presetName">세트 이름</label>
+            <input id="presetName" type="text" maxlength="24" placeholder="예: 감사보고서 기본">
+            <button class="btn small" type="submit">저장</button>
+          </form>
+          <ul id="presetList" class="preset-list"></ul>
+          <button id="presetClear" class="link-btn danger" type="button">저장된 프리셋 모두 지우기</button>
+          <p id="presetHint" class="form-hint" role="status"></p>
+        </section>
+
         <section class="card export" aria-labelledby="exportTitle">
           <h2 id="exportTitle">내보내기</h2>
           <button id="downloadBtn" class="btn primary block" type="button">
@@ -173,6 +234,10 @@
           <button id="copyBtn" class="btn block" type="button">
             <span aria-hidden="true">📋</span> AI 입력용 마스킹 텍스트 복사
           </button>
+          <label class="switch">
+            <input id="resetMeta" type="checkbox" checked>
+            <span>문서 메타데이터도 초기화 <em>(작성자·최종수정자·제목·요약·경로)</em></span>
+          </label>
           <label class="switch">
             <input id="cleanTrace" type="checkbox" checked>
             <span>문서 미리보기 흔적(<code>PrvText</code>·썸네일)도 함께 정리</span>
@@ -190,7 +255,18 @@
 </footer>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-<div id="busy" class="busy" hidden><div class="busy-box"><span class="spinner" aria-hidden="true"></span><span id="busyText">처리 중…</span></div></div>
+<div id="busy" class="busy" hidden>
+  <div class="busy-box">
+    <span class="spinner" aria-hidden="true"></span>
+    <div class="busy-lines">
+      <span id="busyText">처리 중…</span>
+      <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <span id="busyBar"></span>
+      </div>
+    </div>
+    <span id="busyPct" class="busy-pct">0%</span>
+  </div>
+</div>
 <div id="dropOverlay" class="drop-overlay" hidden><p>여기에 놓으면 바로 열립니다</p></div>
 
 <script src="./assets/jszip.min.js"></script>
